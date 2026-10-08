@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "architect-pm-handoff",
+  "version": "1.0.0",
+  "description": "A Codex-only workflow for architecture planning, micro-batched Task Specs, and implementation review.",
+  "author": {
+    "name": "tanyongqi813",
+    "url": "https://github.com/tanyongqi813"
+  },
+  "homepage": "https://github.com/tanyongqi813/architect-pm-handoff",
+  "repository": "https://github.com/tanyongqi813/architect-pm-handoff",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "architecture",
+    "task-spec",
+    "code-review"
+  ]
+}
