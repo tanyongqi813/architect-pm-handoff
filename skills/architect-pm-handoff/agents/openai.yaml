@@ -1,0 +1,6 @@
+interface:
+  display_name: "Architect PM Handoff"
+  short_description: "Codex-only Task Specs and executor review"
+  default_prompt: "Use $architect-pm-handoff to plan this requirement into executable Task Specs."
+policy:
+  allow_implicit_invocation: true
