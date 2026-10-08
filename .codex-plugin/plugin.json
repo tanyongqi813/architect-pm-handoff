@@ -1,0 +1,32 @@
+{
+  "name": "architect-pm-handoff",
+  "version": "1.0.0",
+  "description": "A Codex-only workflow for architecture planning, micro-batched Task Specs, and implementation review.",
+  "author": {
+    "name": "tanyongqi813",
+    "url": "https://github.com/tanyongqi813"
+  },
+  "homepage": "https://github.com/tanyongqi813/architect-pm-handoff",
+  "repository": "https://github.com/tanyongqi813/architect-pm-handoff",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "architecture",
+    "task-spec",
+    "code-review"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Architect PM Handoff",
+    "shortDescription": "Plan Task Specs and review implementation",
+    "longDescription": "Use Codex as the architecture and review role: inspect the repository, create small executable Task Specs for an implementation agent, and review the resulting changes without taking over implementation.",
+    "developerName": "tanyongqi813",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/tanyongqi813/architect-pm-handoff",
+    "defaultPrompt": [
+      "Use Architect PM Handoff to plan this requirement into executable Task Specs.",
+      "Use Architect PM Handoff to review the implementation report and diff for the current task."
+    ]
+  }
+}
