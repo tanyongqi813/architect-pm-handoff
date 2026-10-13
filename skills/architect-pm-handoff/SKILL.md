@@ -66,6 +66,30 @@ For `[CHANGES_REQUESTED]`, update the same Task Spec with focused refactor instr
 
 For `[PASSED]` or `[PASSED_WITH_NOTES]`, set the reviewed task to `PASSED`, record material notes, and promote the next unblocked task from `DRAFT` to `READY`. Do not implement it.
 
+### Cursor handoff after review
+
+After the verdict and repository records are updated, end every review response with a self-contained, directly copyable section titled `### 发给 Cursor 的下一步指令`.
+
+- For `[CHANGES_REQUESTED]`, instruct Cursor to correct the reviewed task. Include the Task ID, defect summary, required correction, affected files, constraints, and exact verification commands or observable checks. Tell Cursor to return a concise Implementation Report and diff summary. Keep the work within the existing task; do not imply that a new feature task should be started.
+- For `[PASSED]` or `[PASSED_WITH_NOTES]`, instruct Cursor to execute the next `READY` task from the project plan. Base the instruction on its Task Spec, and include the Task ID, spec path, objective, affected files, constraints, and verification. Non-blocking review notes may be mentioned only when relevant to that next task.
+- If no unblocked next task exists, state that the current planned stage is complete and do not invent a task. If planning is incomplete, direct the user back to Codex for planning rather than asking Cursor to design the next phase.
+- For `[BLOCKED]`, do not issue an implementation prompt. In the same section, state the decision needed from the user and that Cursor should wait.
+
+The Cursor instruction must stand on its own without relying on the surrounding review text. It must direct Cursor to implement, test, and report only; it must not ask Cursor to select or execute this Codex-only skill, redefine architecture, expand scope, or modify unrelated files.
+
+### Optional Cursor dispatch
+
+When the Cursor handoff contains an actionable implementation or correction prompt, ask the user whether to send it to the corresponding Cursor project conversation and start execution. This is an optional convenience step, not the default.
+
+- Do not open Cursor, change conversations, paste, or submit anything until the user explicitly confirms that specific dispatch. A prior request to enable this workflow is not standing authorization for future dispatches.
+- After confirmation, use available computer-control capability to locate Cursor and match the repository by its resolved absolute path or an unambiguous project/workspace name. Prefer the existing conversation associated with that project and task.
+- Before submitting, verify the visible Cursor project and conversation are the intended target. If multiple workspaces or conversations plausibly match, ask the user to identify the target; do not guess.
+- Paste only the contents of `发给 Cursor 的下一步指令`, preserving Task ID, scope, constraints, and verification requirements, then submit it so Cursor begins execution.
+- Do not create a new Cursor conversation unless the user authorizes that when no suitable conversation exists.
+- Report whether the instruction was submitted and identify the target project/conversation. Submission means execution was started, not that implementation succeeded; completion still requires Cursor's report and a later Codex review.
+- If Cursor is unavailable, the project is not open, UI control is unavailable, or the target cannot be verified, keep the copyable prompt intact and explain the blocker instead of sending elsewhere.
+- Do not offer dispatch for `[BLOCKED]` or when no actionable next task exists.
+
 ## Response shape
 
 Keep chat output compact:
@@ -84,3 +108,16 @@ Keep chat output compact:
 ```
 
 The complete specification remains in `docs/tasks/TASK-xxx.md`.
+
+For review responses, append:
+
+```markdown
+### 发给 Cursor 的下一步指令
+> [A self-contained implementation or correction prompt that the user can copy directly into Cursor.]
+```
+
+When that prompt is actionable and has not yet been dispatched, finish with a concise confirmation question such as:
+
+```markdown
+是否将以上指令发送到对应的 Cursor 项目会话并开始执行？
+```
