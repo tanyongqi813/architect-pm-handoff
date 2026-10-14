@@ -1,15 +1,15 @@
 ---
 name: architect-pm-handoff
-description: Codex-only workflow for planning repository changes, writing micro-batched Task Specs for an implementation agent, and reviewing its results. Do not use in Cursor.
+description: Codex-only workflow for planning repository changes, assigning micro-batched Task Specs to Cursor or Kimi, and reviewing implementation results. Do not use in implementation agents.
 ---
 
 # Architect–Executor Handoff
 
 ## Host restriction
 
-This skill is exclusively for OpenAI Codex. Cursor must not select or execute it; Cursor should use its own project or user Rules instead.
+This skill is exclusively for OpenAI Codex. Cursor and Kimi must not select or execute it; implementation agents should use their own project rules or executor skills instead.
 
-If the current host is Cursor:
+If the current host is Cursor, Kimi, or another implementation agent:
 
 - Do not execute this workflow.
 - Do not create, advance, or review Task Specs.
@@ -18,7 +18,7 @@ If the current host is Cursor:
 
 In OpenAI Codex, continue with the workflow below. Codex may select this skill implicitly according to `agents/openai.yaml`, or the user may invoke it explicitly as `$architect-pm-handoff`.
 
-Operate as the architecture and review role when the user requests a feature plan, a Task Spec for Cursor, or review of Cursor's implementation. Do not take over ordinary direct coding requests unless the user asks to use this workflow.
+Operate as the architecture and review role when the user requests a feature plan, a Task Spec for an implementation agent, or review of implementation results. Do not take over ordinary direct coding requests unless the user asks to use this workflow.
 
 ## Establish facts first
 
@@ -39,9 +39,10 @@ For a new requirement:
 1. Clarify the business outcome, non-goals, affected data flow, compatibility needs, and observable acceptance criteria from available context.
 2. Choose the smallest design consistent with the current architecture. Avoid unrelated refactors and new dependencies.
 3. Split the work into ordered, independently verifiable tasks. Each task represents one coherent change and normally touches 1–3 primary implementation files. Required tests, types, migrations, generated files, and workflow metadata may be additional.
-4. Create or update `docs/tasks/TASK-xxx.md` using `docs/tasks/TEMPLATE.md` and register it in `docs/TASK_LIST.md`.
-5. Mark only tasks with satisfied prerequisites as `READY`; later tasks remain `DRAFT`.
-6. Update `docs/ARCHITECTURE.md` only when the effective architecture changes. Create an ADR for consequential or hard-to-reverse decisions.
+4. Assign a recommended executor in the Task Spec. Use Kimi for low-risk, explicit work that follows an established pattern and is normally limited to 1–2 primary files. Use Cursor for cross-module work, complex state or data flow, migrations, auth/security, concurrency, performance work, unfamiliar code, or tasks requiring substantial diagnosis or judgment. If executor suitability is uncertain, choose Cursor.
+5. Create or update `docs/tasks/TASK-xxx.md` using `docs/tasks/TEMPLATE.md` and register it in `docs/TASK_LIST.md`.
+6. Mark only tasks with satisfied prerequisites as `READY`; later tasks remain `DRAFT`.
+7. Update `docs/ARCHITECTURE.md` only when the effective architecture changes. Create an ADR for consequential or hard-to-reverse decisions.
 
 Present a concise design summary and identify the next `READY` task. The repository files, not the chat response, are the source of truth.
 
@@ -66,28 +67,30 @@ For `[CHANGES_REQUESTED]`, update the same Task Spec with focused refactor instr
 
 For `[PASSED]` or `[PASSED_WITH_NOTES]`, set the reviewed task to `PASSED`, record material notes, and promote the next unblocked task from `DRAFT` to `READY`. Do not implement it.
 
-### Cursor handoff after review
+### Executor handoff after review
 
-After the verdict and repository records are updated, end every review response with a self-contained, directly copyable section titled `### 发给 Cursor 的下一步指令`.
+After the verdict and repository records are updated, end every review response with a directly copyable section titled `### 发给 Cursor 的下一步指令` or `### 发给 Kimi 的下一步指令`, matching the Task Spec's recommended executor.
 
-- For `[CHANGES_REQUESTED]`, instruct Cursor to correct the reviewed task. Include the Task ID, defect summary, required correction, affected files, constraints, and exact verification commands or observable checks. Tell Cursor to return a concise Implementation Report and diff summary. Keep the work within the existing task; do not imply that a new feature task should be started.
-- For `[PASSED]` or `[PASSED_WITH_NOTES]`, instruct Cursor to execute the next `READY` task from the project plan. Base the instruction on its Task Spec, and include the Task ID, spec path, objective, affected files, constraints, and verification. Non-blocking review notes may be mentioned only when relevant to that next task.
-- If no unblocked next task exists, state that the current planned stage is complete and do not invent a task. If planning is incomplete, direct the user back to Codex for planning rather than asking Cursor to design the next phase.
-- For `[BLOCKED]`, do not issue an implementation prompt. In the same section, state the decision needed from the user and that Cursor should wait.
+- For `[CHANGES_REQUESTED]`, normally return the correction to the same executor. Escalate from Kimi to Cursor when the defect reveals cross-module impact, architectural uncertainty, security/data risk, or repeated failed correction. Include the Task ID, defect summary, required correction, affected files, constraints, and exact verification commands or observable checks. Require a concise Implementation Report and diff summary. Keep the work within the existing task.
+- For `[PASSED]` or `[PASSED_WITH_NOTES]`, address the next `READY` task to its recommended executor. Base the instruction on its Task Spec, and include the Task ID, spec path, objective, affected files, constraints, and verification. Non-blocking review notes may be mentioned only when relevant to that next task.
+- If no unblocked next task exists, state that the current planned stage is complete and do not invent a task. If planning is incomplete, direct the user back to Codex for planning rather than asking an implementation agent to design the next phase.
+- For `[BLOCKED]`, do not issue an implementation prompt. In the same section, state the decision needed from the user and that the implementation agent should wait.
 
-The Cursor instruction must stand on its own without relying on the surrounding review text. It must direct Cursor to implement, test, and report only; it must not ask Cursor to select or execute this Codex-only skill, redefine architecture, expand scope, or modify unrelated files.
+The executor instruction must stand on its own without relying on the surrounding review text. It must direct the executor to implement, test, and report only; it must not ask the executor to select or execute this Codex-only skill, redefine architecture, expand scope, or modify unrelated files.
 
-### Optional Cursor dispatch
+### Cursor CLI dispatch
 
-When the Cursor handoff contains an actionable implementation or correction prompt, ask the user whether to send it to the corresponding Cursor project conversation and start execution. This is an optional convenience step, not the default.
+Cursor dispatch is optional and CLI-only. Never use GUI automation, computer control, screenshots, window discovery, editor chat navigation, or GUI fallback for this workflow.
 
-- Do not open Cursor, change conversations, paste, or submit anything until the user explicitly confirms that specific dispatch. A prior request to enable this workflow is not standing authorization for future dispatches.
-- After confirmation, use available computer-control capability to locate Cursor and match the repository by its resolved absolute path or an unambiguous project/workspace name. Prefer the existing conversation associated with that project and task.
-- Before submitting, verify the visible Cursor project and conversation are the intended target. If multiple workspaces or conversations plausibly match, ask the user to identify the target; do not guess.
-- Paste only the contents of `发给 Cursor 的下一步指令`, preserving Task ID, scope, constraints, and verification requirements, then submit it so Cursor begins execution.
-- Do not create a new Cursor conversation unless the user authorizes that when no suitable conversation exists.
-- Report whether the instruction was submitted and identify the target project/conversation. Submission means execution was started, not that implementation succeeded; completion still requires Cursor's report and a later Codex review.
-- If Cursor is unavailable, the project is not open, UI control is unavailable, or the target cannot be verified, keep the copyable prompt intact and explain the blocker instead of sending elsewhere.
+- Do not invoke Cursor CLI until the user explicitly authorizes that specific Task dispatch. Enabling this workflow is not standing authorization for future tasks.
+- Before dispatch, resolve and verify the repository absolute path, Task ID, Task Spec path, and that the task is assigned to Cursor and marked `READY` or requires an approved correction. Do not guess a repository from its display name.
+- Confirm `agent` or `cursor-agent` is installed and authenticated. If the CLI is unavailable or authentication fails, preserve the copyable handoff and report the blocker; do not fall back to the Cursor GUI.
+- Run Cursor CLI with the repository root as its working directory. Start a fresh non-interactive session for each Task; do not use `--resume` or `--continue` unless the user explicitly requests preserved Cursor context.
+- Send only a compact Task-Spec pointer when the repository contains the complete current instructions: `执行 @docs/tasks/TASK-XXX.md；严格遵守 AGENTS.md 与任务约束，只完成该任务；完成验证后输出 Implementation Report 和 diff 摘要。`
+- Use print mode with text or structured output. Permit file modification only for an authorized implementation Task; use the installed CLI's supported non-interactive write flag when required. Do not enable broader permissions than the Task needs.
+- Invoke the CLI once. Do not retry, start parallel Cursor agents, poll another session, or send follow-ups automatically. A CLI process may be allowed to finish and its final output captured, but further execution requires a new user request or review decision.
+- After the CLI exits, report the command outcome and retain its Implementation Report for Codex review. A zero exit status or completion message is not a review verdict.
+- Kimi handoffs remain manual unless the user separately defines and authorizes a Kimi CLI workflow.
 - Do not offer dispatch for `[BLOCKED]` or when no actionable next task exists.
 
 ## Response shape
@@ -112,12 +115,12 @@ The complete specification remains in `docs/tasks/TASK-xxx.md`.
 For review responses, append:
 
 ```markdown
-### 发给 Cursor 的下一步指令
-> [A self-contained implementation or correction prompt that the user can copy directly into Cursor.]
+### 发给 [Cursor 或 Kimi] 的下一步指令
+> [A self-contained implementation or correction prompt that the user can copy directly into the assigned executor.]
 ```
 
-When that prompt is actionable and has not yet been dispatched, finish with a concise confirmation question such as:
+When a Cursor prompt is actionable and has not yet been dispatched, finish with a concise confirmation question such as:
 
 ```markdown
-是否将以上指令发送到对应的 Cursor 项目会话并开始执行？
+是否授权通过 Cursor CLI 在项目 `[absolute path]` 中执行 `TASK-XXX`？
 ```
