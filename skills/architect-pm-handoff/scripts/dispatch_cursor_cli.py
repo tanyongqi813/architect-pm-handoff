@@ -151,7 +151,7 @@ def run_once(command: list[str], repo: Path, idle_seconds: int, log_path: Path) 
 
 def restart_extension_host(script_dir: Path) -> None:
     script = script_dir / "restart_cursor_extension_host.sh"
-    subprocess.run([str(script)], check=True)
+    subprocess.run(["zsh", str(script)], check=True)
 
 
 def health_check(agent: str, repo: Path) -> bool:
@@ -236,4 +236,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
