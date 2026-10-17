@@ -10,6 +10,7 @@ A Codex-only skill for using Codex as the architecture, planning, and review rol
 - Keeps architecture and task documents as the source of truth.
 - Reviews diffs, errors, test results, and implementation reports.
 - Reassesses unfinished-task priorities after every review, returns an explicit verdict, and advances the highest-priority unblocked task.
+- Emits the executor-handoff heading only when exactly one complete, unlocked Task or concrete correction is actionable; downstream automation must treat an absent heading as `no dispatch`.
 
 ## Host boundary
 
