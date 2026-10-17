@@ -1,0 +1,5 @@
+[git_sync]
+# Public default: require explicit opt-in before committing or pushing reviewed work.
+auto_commit_on_pass = false
+auto_push_on_pass = false
+
