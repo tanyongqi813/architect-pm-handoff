@@ -83,6 +83,22 @@ For `[CHANGES_REQUESTED]`, update the same Task Spec with focused refactor instr
 
 For `[PASSED]` or `[PASSED_WITH_NOTES]`, set the reviewed task to `PASSED`, record material notes, and promote the next unblocked task from `DRAFT` to `READY`. Do not implement it.
 
+### Approved Task Git sync
+
+Automatic Git sync is opt-in. Read `config.local.toml` in this Skill directory when present; otherwise use the disabled defaults in `config.example.toml`. Never publish `config.local.toml`.
+
+When `git_sync.auto_commit_on_pass = true`, after a `[PASSED]` or `[PASSED_WITH_NOTES]` verdict and all required repository documentation updates:
+
+- Inspect the final diff and status. Commit only the reviewed Task's implementation, tests, generated or migration files required by that Task, its Task Spec, `docs/TASK_LIST.md`, and architecture/ADR updates caused by that Task. Never include unrelated staged or unstaged changes.
+- Require all acceptance verification to have passed, no merge/rebase/cherry-pick conflict state, a named branch, no suspected secrets or credentials, and a complete Task record. Stop and report the reason when any condition fails.
+- Run `python3 scripts/commit_and_sync_task.py` with an explicit `--path` for every approved file. The script rejects unrelated staged files, sensitive-looking paths, detached HEAD, incomplete Git operations, whitespace errors, and missing upstreams.
+- Use commit subject `task(TASK-XXX): <short title>`. The commit body must record Task ID, spec path, review verdict, priority, difficulty, verification commands/results, and every committed path.
+- Report the resulting commit SHA, branch, committed paths, and push status in the review response so the approval remains traceable.
+
+When `git_sync.auto_push_on_pass = true`, pass `--push` and synchronize only through the current branch's existing upstream. Never create an upstream implicitly, force-push, amend, rewrite history, switch branches, merge, or open a pull request. If push fails, preserve the local commit, report that it is not synchronized, and do not retry automatically.
+
+Complete this Git sync before selecting or dispatching the next Task. A successful review without a successful configured sync must clearly report the sync blocker, but it does not change the review verdict.
+
 After every review verdict, including repeated review of the same Task, reassess the priority of every non-`PASSED` Task affected by the result. Consider changed dependencies, newly discovered defects or risks, milestone impact, and current business urgency. Update `docs/TASK_LIST.md` and each affected Task Spec when a priority changes, and record `old → new` plus the reason in the review record. If no priority changes, explicitly record that priorities were reassessed and remained unchanged. Select the next `READY` Task only after this reassessment.
 
 Every review response must include a concise `### 优先级复核` section listing each priority change and reason, or stating `已复核，无调整`. This section appears before the executor handoff.
