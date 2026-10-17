@@ -6,13 +6,16 @@ A Codex-only skill for using Codex as the architecture, planning, and review rol
 
 - Inspects the repository before proposing changes.
 - Converts requirements into ordered, micro-batched Task Specs.
+- Assigns mandatory `P0`–`P3` priority and `Low`/`Medium`/`High` difficulty to every Task.
 - Keeps architecture and task documents as the source of truth.
 - Reviews diffs, errors, test results, and implementation reports.
-- Returns explicit review verdicts and advances the next ready task.
+- Reassesses unfinished-task priorities after every review, returns an explicit verdict, and advances the highest-priority unblocked task.
 
 ## Host boundary
 
-This workflow is intended for OpenAI Codex. Cursor should use its own project or user Rules and must not execute this skill.
+This workflow is intended for OpenAI Codex. Implementation agents should use their own project or user rules and must not execute this skill.
+
+Task Specs remain vendor-neutral: they record difficulty rather than naming a specific model, product, or coding agent. Each user or team can map difficulty levels to its own executors. The included Cursor CLI dispatcher is an optional local adapter and does not change the shared document format.
 
 ## Install on another device
 
