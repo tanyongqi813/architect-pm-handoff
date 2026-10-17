@@ -1,19 +1,19 @@
 ---
 name: architect-pm-handoff
-description: Codex-only workflow for planning repository changes, assigning micro-batched Task Specs to Cursor or Kimi, and reviewing implementation results. Do not use in implementation agents.
+description: Codex-only workflow for planning prioritized repository changes, writing difficulty-classified micro-batched Task Specs, and reviewing implementation results. Do not use in implementation agents.
 ---
 
 # Architect–Executor Handoff
 
 ## Host restriction
 
-This skill is exclusively for OpenAI Codex. Cursor and Kimi must not select or execute it; implementation agents should use their own project rules or executor skills instead.
+This skill is exclusively for OpenAI Codex. Implementation agents must not select or execute it; they should use their own project rules or executor skills instead.
 
-If the current host is Cursor, Kimi, or another implementation agent:
+If the current host is an implementation agent rather than OpenAI Codex:
 
 - Do not execute this workflow.
 - Do not create, advance, or review Task Specs.
-- State that this is a Codex-only skill and direct the user to the project's Cursor Rules.
+- State that this is a Codex-only skill and direct the user to the implementation agent's project rules.
 - Stop without changing files.
 
 In OpenAI Codex, continue with the workflow below. Codex may select this skill implicitly according to `agents/openai.yaml`, or the user may invoke it explicitly as `$architect-pm-handoff`.
@@ -39,10 +39,26 @@ For a new requirement:
 1. Clarify the business outcome, non-goals, affected data flow, compatibility needs, and observable acceptance criteria from available context.
 2. Choose the smallest design consistent with the current architecture. Avoid unrelated refactors and new dependencies.
 3. Split the work into ordered, independently verifiable tasks. Each task represents one coherent change and normally touches 1–3 primary implementation files. Required tests, types, migrations, generated files, and workflow metadata may be additional.
-4. Assign a recommended executor in the Task Spec. Use Kimi for low-risk, explicit work that follows an established pattern and is normally limited to 1–2 primary files. Use Cursor for cross-module work, complex state or data flow, migrations, auth/security, concurrency, performance work, unfamiliar code, or tasks requiring substantial diagnosis or judgment. If executor suitability is uncertain, choose Cursor.
-5. Create or update `docs/tasks/TASK-xxx.md` using `docs/tasks/TEMPLATE.md` and register it in `docs/TASK_LIST.md`.
-6. Mark only tasks with satisfied prerequisites as `READY`; later tasks remain `DRAFT`.
+4. Assign both a priority and a difficulty level when each Task is first created. These fields are mandatory; never leave either implicit.
+5. Create or update `docs/tasks/TASK-xxx.md` using `docs/tasks/TEMPLATE.md` and register it in `docs/TASK_LIST.md`. If the template lacks priority or difficulty fields, add them to the created Task Spec and update the template when it is maintained by this workflow.
+6. Mark only tasks with satisfied prerequisites as `READY`; later tasks remain `DRAFT`. Among simultaneously unblocked tasks, recommend the highest-priority task first. Priority never overrides an unsatisfied dependency.
 7. Update `docs/ARCHITECTURE.md` only when the effective architecture changes. Create an ADR for consequential or hard-to-reverse decisions.
+
+### Priority and difficulty classification
+
+Every Task Spec and its `docs/TASK_LIST.md` entry must include:
+
+- `优先级`: `P0`, `P1`, `P2`, or `P3`.
+  - `P0`: active production outage, exploitable security issue, data-loss risk, or release-blocking emergency. Use rarely.
+  - `P1`: current milestone critical path, blocks other accepted tasks, or carries material near-term business or technical risk.
+  - `P2`: normal planned work with no immediate blocker. This is the default when no stronger reason exists.
+  - `P3`: optional improvement, cleanup, or deferred optimization with low near-term impact.
+- `难度等级`: `Low`, `Medium`, or `High`.
+  - `Low`: explicit, low-risk work following an established pattern, normally within 1–2 primary files.
+  - `Medium`: localized design or diagnosis with moderate interactions, normally within the micro-batch boundary.
+  - `High`: cross-module behavior, complex state or data flow, migrations, auth/security, concurrency, performance work, unfamiliar code, or substantial judgment.
+
+Priority expresses urgency and sequencing; difficulty expresses the capability needed to execute the Task. Do not infer one from the other. Do not write product, vendor, model, or agent names such as Cursor or Kimi in the Task Spec's executor recommendation. Consumers may map difficulty levels to their own implementation agents outside the shared project documents.
 
 Present a concise design summary and identify the next `READY` task. The repository files, not the chat response, are the source of truth.
 
@@ -67,12 +83,16 @@ For `[CHANGES_REQUESTED]`, update the same Task Spec with focused refactor instr
 
 For `[PASSED]` or `[PASSED_WITH_NOTES]`, set the reviewed task to `PASSED`, record material notes, and promote the next unblocked task from `DRAFT` to `READY`. Do not implement it.
 
+After every review verdict, including repeated review of the same Task, reassess the priority of every non-`PASSED` Task affected by the result. Consider changed dependencies, newly discovered defects or risks, milestone impact, and current business urgency. Update `docs/TASK_LIST.md` and each affected Task Spec when a priority changes, and record `old → new` plus the reason in the review record. If no priority changes, explicitly record that priorities were reassessed and remained unchanged. Select the next `READY` Task only after this reassessment.
+
+Every review response must include a concise `### 优先级复核` section listing each priority change and reason, or stating `已复核，无调整`. This section appears before the executor handoff.
+
 ### Executor handoff after review
 
-After the verdict and repository records are updated, end every review response with a directly copyable section titled `### 发给 Cursor 的下一步指令` or `### 发给 Kimi 的下一步指令`, matching the Task Spec's recommended executor.
+After the verdict, priority reassessment, and repository records are updated, end every review response with a directly copyable section titled `### 发给执行代理的下一步指令（难度：Low|Medium|High）`, matching the Task Spec's difficulty level.
 
-- For `[CHANGES_REQUESTED]`, normally return the correction to the same executor. Escalate from Kimi to Cursor when the defect reveals cross-module impact, architectural uncertainty, security/data risk, or repeated failed correction. Include the Task ID, defect summary, required correction, affected files, constraints, and exact verification commands or observable checks. Require a concise Implementation Report and diff summary. Keep the work within the existing task.
-- For `[PASSED]` or `[PASSED_WITH_NOTES]`, address the next `READY` task to its recommended executor. Base the instruction on its Task Spec, and include the Task ID, spec path, objective, affected files, constraints, and verification. Non-blocking review notes may be mentioned only when relevant to that next task.
+- For `[CHANGES_REQUESTED]`, normally return the correction at the same difficulty level. Raise the difficulty when the defect reveals wider impact, architectural uncertainty, security/data risk, or repeated failed correction; update the Task Spec when it changes. Include the Task ID, priority, difficulty, defect summary, required correction, affected files, constraints, and exact verification commands or observable checks. Require a concise Implementation Report and diff summary. Keep the work within the existing task.
+- For `[PASSED]` or `[PASSED_WITH_NOTES]`, address the highest-priority unblocked `READY` Task after priority reassessment. Base the instruction on its Task Spec, and include the Task ID, priority, difficulty, spec path, objective, affected files, constraints, and verification. Non-blocking review notes may be mentioned only when relevant to that next task.
 - If no unblocked next task exists, state that the current planned stage is complete and do not invent a task. If planning is incomplete, direct the user back to Codex for planning rather than asking an implementation agent to design the next phase.
 - For `[BLOCKED]`, do not issue an implementation prompt. In the same section, state the decision needed from the user and that the implementation agent should wait.
 
@@ -83,7 +103,7 @@ The executor instruction must stand on its own without relying on the surroundin
 Cursor dispatch is optional and CLI-only. Never use GUI automation, computer control, screenshots, window discovery, editor chat navigation, or GUI fallback for this workflow.
 
 - Do not invoke Cursor CLI until the user explicitly authorizes that specific Task dispatch. Enabling this workflow is not standing authorization for future tasks.
-- Before dispatch, resolve and verify the repository absolute path, Task ID, Task Spec path, and that the task is assigned to Cursor and marked `READY` or requires an approved correction. Do not guess a repository from its display name.
+- Before dispatch, resolve and verify the repository absolute path, Task ID, Task Spec path, priority, difficulty, and that the user selected Cursor CLI for a `READY` Task or approved correction. The shared Task Spec must remain vendor-neutral. Do not guess a repository from its display name or infer the user's local difficulty-to-agent mapping.
 - Confirm `agent` or `cursor-agent` is installed and authenticated. If the CLI is unavailable or authentication fails, preserve the copyable handoff and report the blocker; do not fall back to the Cursor GUI.
 - Run Cursor CLI with the repository root as its working directory. Start a fresh non-interactive session for each Task; do not use `--resume` or `--continue` unless the user explicitly requests preserved Cursor context.
 - Send only a compact Task-Spec pointer when the repository contains the complete current instructions: `执行 @docs/tasks/TASK-XXX.md；严格遵守 AGENTS.md 与任务约束，只完成该任务；完成验证后输出 Implementation Report 和 diff 摘要。`
@@ -94,7 +114,7 @@ Cursor dispatch is optional and CLI-only. Never use GUI automation, computer con
 - Automatic recovery requires macOS, a running Cursor application, Accessibility permission for the calling terminal/Codex process, and explicit authorization for the current dispatch. If any prerequisite is missing, stop without GUI fallback or process-killing workarounds.
 - Do not start parallel Cursor agents, poll another session, or send follow-ups automatically. A CLI process may finish and its final output may be captured, but further execution requires a new user request or review decision.
 - After the CLI exits, report the command outcome and retain its Implementation Report for Codex review. A zero exit status or completion message is not a review verdict.
-- Kimi handoffs remain manual unless the user separately defines and authorizes a Kimi CLI workflow.
+- Other implementation-agent handoffs remain manual unless the user separately defines and authorizes a compatible dispatch workflow.
 - Do not offer dispatch for `[BLOCKED]` or when no actionable next task exists.
 
 ## Response shape
@@ -107,6 +127,8 @@ Keep chat output compact:
 
 ### Task Spec: TASK-XXX [title]
 - 状态与 spec path
+- 优先级
+- 难度等级
 - 涉及文件
 - 前置条件
 - 核心变更摘要
@@ -119,8 +141,8 @@ The complete specification remains in `docs/tasks/TASK-xxx.md`.
 For review responses, append:
 
 ```markdown
-### 发给 [Cursor 或 Kimi] 的下一步指令
-> [A self-contained implementation or correction prompt that the user can copy directly into the assigned executor.]
+### 发给执行代理的下一步指令（难度：[Low|Medium|High]）
+> [A vendor-neutral, self-contained implementation or correction prompt that the user can copy into a suitable executor.]
 ```
 
 When a Cursor prompt is actionable and has not yet been dispatched, finish with a concise confirmation question such as:
