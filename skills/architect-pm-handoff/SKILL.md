@@ -89,12 +89,18 @@ Every review response must include a concise `### 优先级复核` section listi
 
 ### Executor handoff after review
 
-After the verdict, priority reassessment, and repository records are updated, end every review response with a directly copyable section titled `### 发给执行代理的下一步指令（难度：Low|Medium|High）`, matching the Task Spec's difficulty level.
+Treat the heading `### 发给执行代理的下一步指令（难度：Low|Medium|High）` as a strict machine-readable dispatch signal. Output it only when there is exactly one actionable handoff after the verdict, priority reassessment, and repository updates.
+
+An actionable handoff exists only when either:
+
+- `[CHANGES_REQUESTED]` has concrete, recorded correction instructions for the reviewed Task, with a complete Task Spec, known priority and difficulty, and no unresolved product or architecture decision; or
+- a next Task is `READY`, all prerequisites are satisfied, its Task Spec is complete, and priority and difficulty are known.
+
+If these conditions are not met, do not output the handoff heading, an empty handoff block, a placeholder, an instruction to wait, or a message addressed to an implementation agent. Report the situation only in the ordinary review/status text for the user. This includes `[BLOCKED]`, a completed stage with no next Task, locked or `DRAFT` Tasks, incomplete planning data, unresolved dependencies, and cases where no single executable Task can be selected. The absence of the heading means `no dispatch` to downstream automation.
 
 - For `[CHANGES_REQUESTED]`, normally return the correction at the same difficulty level. Raise the difficulty when the defect reveals wider impact, architectural uncertainty, security/data risk, or repeated failed correction; update the Task Spec when it changes. Include the Task ID, priority, difficulty, defect summary, required correction, affected files, constraints, and exact verification commands or observable checks. Require a concise Implementation Report and diff summary. Keep the work within the existing task.
 - For `[PASSED]` or `[PASSED_WITH_NOTES]`, address the highest-priority unblocked `READY` Task after priority reassessment. Base the instruction on its Task Spec, and include the Task ID, priority, difficulty, spec path, objective, affected files, constraints, and verification. Non-blocking review notes may be mentioned only when relevant to that next task.
-- If no unblocked next task exists, state that the current planned stage is complete and do not invent a task. If planning is incomplete, direct the user back to Codex for planning rather than asking an implementation agent to design the next phase.
-- For `[BLOCKED]`, do not issue an implementation prompt. In the same section, state the decision needed from the user and that the implementation agent should wait.
+- If no actionable handoff exists, state the completion, lock, missing planning information, dependency, or required user decision outside any executor-handoff section. Do not invent a task.
 
 The executor instruction must stand on its own without relying on the surrounding review text. It must direct the executor to implement, test, and report only; it must not ask the executor to select or execute this Codex-only skill, redefine architecture, expand scope, or modify unrelated files.
 
@@ -138,14 +144,16 @@ Keep chat output compact:
 
 The complete specification remains in `docs/tasks/TASK-xxx.md`.
 
-For review responses, append:
+For review responses with exactly one actionable handoff, append:
 
 ```markdown
 ### 发给执行代理的下一步指令（难度：[Low|Medium|High]）
 > [A vendor-neutral, self-contained implementation or correction prompt that the user can copy into a suitable executor.]
 ```
 
-When a Cursor prompt is actionable and has not yet been dispatched, finish with a concise confirmation question such as:
+For review responses without an actionable handoff, omit this section entirely.
+
+Only when an actionable handoff exists, the user has mapped it to Cursor, and it has not yet been dispatched, finish with a concise confirmation question such as:
 
 ```markdown
 是否授权通过 Cursor CLI 在项目 `[absolute path]` 中执行 `TASK-XXX`？
