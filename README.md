@@ -11,6 +11,7 @@ A Codex-only skill for using Codex as the architecture, planning, and review rol
 - Reviews diffs, errors, test results, and implementation reports.
 - Reassesses unfinished-task priorities after every review, returns an explicit verdict, and advances the highest-priority unblocked task.
 - Emits the executor-handoff heading only when exactly one complete, unlocked Task or concrete correction is actionable; downstream automation must treat an absent heading as `no dispatch`.
+- Can optionally commit and push approved Task-scoped changes with traceable commit metadata while rejecting unrelated staged files.
 
 ## Host boundary
 
@@ -35,6 +36,12 @@ Use $architect-pm-handoff to plan this requirement into executable Task Specs.
 ```
 
 The repository also includes portable and Codex compatibility plugin manifests for plugin-based installation.
+
+## Optional approved-task Git sync
+
+Automatic commit and push are disabled by default. Copy `config.example.toml` to `config.local.toml` inside the installed Skill directory and enable the desired values. Keep `config.local.toml` private; it is ignored by this repository.
+
+The sync workflow stages only explicit Task paths, requires an existing branch upstream before pushing, records the Task ID, review verdict, priority, difficulty, verification, and changed paths in the commit message, and never force-pushes or rewrites history.
 
 ## Expected project files
 
