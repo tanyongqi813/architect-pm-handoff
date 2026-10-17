@@ -4,5 +4,6 @@
 *.log
 auth.json
 config.toml
+config.local.toml
 credentials*
 secrets*
