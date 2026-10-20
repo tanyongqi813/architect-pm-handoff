@@ -1,176 +1,123 @@
 ---
 name: architect-pm-handoff
-description: Codex-only workflow for planning prioritized repository changes, writing difficulty-classified micro-batched Task Specs, and reviewing implementation results. Do not use in implementation agents.
+description: Lead-AI workflow for prioritized repository planning, context-efficient handoffs to downstream agents, and implementation review. Produces durable Task Specs, short per-attempt Execution Capsules, and separate Review Records; use only when acting as the responsible planner/reviewer.
 ---
 
-# Architect–Executor Handoff
+# Lead AI–Executor Handoff
 
-## Host restriction
+## Boundary
 
-This skill is exclusively for OpenAI Codex. Implementation agents must not select or execute it; they should use their own project rules or executor skills instead.
+This skill is for the **lead AI** responsible for architecture, planning, sequencing, review, and acceptance. The lead may be Claude, Codex, or another agent with that assigned authority. A downstream agent whose assignment is implementation-only must not run the planning/review workflow or advance Task state.
 
-If the current host is an implementation agent rather than OpenAI Codex:
+Role assignment, not vendor identity, controls behavior. The same AI may use this skill only while explicitly acting as lead; an executor must follow the current Execution Capsule and return evidence without redefining architecture or scope. Keep shared Task Specs, Execution Capsules, and Review Records vendor-neutral; channel- or model-specific behavior belongs in an adapter.
 
-- Do not execute this workflow.
-- Do not create, advance, or review Task Specs.
-- State that this is a Codex-only skill and direct the user to the implementation agent's project rules.
-- Stop without changing files.
+The lead AI must not take over implementation unless the user separately requests direct coding. Repository files are the source of truth, but a downstream agent receives only the bounded projection needed for its current attempt.
 
-In OpenAI Codex, continue with the workflow below. Codex may select this skill implicitly according to `agents/openai.yaml`, or the user may invoke it explicitly as `$architect-pm-handoff`.
+## Establish facts
 
-Operate as the architecture and review role when the user requests a feature plan, a Task Spec for an implementation agent, or review of implementation results. Do not take over ordinary direct coding requests unless the user asks to use this workflow.
+Inspect the repository before proposing paths or interfaces. Prefer, when present:
 
-## Establish facts first
-
-Inspect the repository before proposing paths or interfaces. Use these sources when present:
-
-- `AGENTS.md` for shared constraints.
-- `docs/ARCHITECTURE.md` for current architecture.
+- `AGENTS.md` for shared repository constraints.
+- `docs/ARCHITECTURE.md` and `docs/decisions/` for system boundaries and durable decisions.
 - `docs/TASK_LIST.md` for sequencing and status.
-- Relevant implementation and test files for actual behavior.
-- `docs/decisions/` for durable decisions.
+- The current Task Spec and relevant implementation/tests for actual behavior.
 
-Do not invent missing facts. Mark material uncertainty as `待确认`; ask the user only when it changes the design materially.
+Do not invent missing paths, interfaces, file allowlists, commands, or baseline failures. Mark material uncertainty as `待确认`; ask only when it changes the design materially. When repository behavior conflicts with documentation, record the conflict and request an architecture decision.
+
+## Three-layer record model
+
+Keep these responsibilities separate:
+
+1. **Task Spec — durable planning facts.** Store business outcome and non-goals, architecture and compatibility requirements, acceptance criteria, dependencies, priority, difficulty, primary interfaces, and long-lived constraints. Do not append execution transcripts or accumulated review history.
+2. **Execution Capsule — one-attempt execution contract.** Create a short, self-contained, immutable-per-attempt projection under `docs/execution/TASK-XXX/attempt-NN.md` (or the repository's established equivalent). Read [references/executor-handoff.md](references/executor-handoff.md) whenever creating or revising a capsule.
+3. **Review Record — append-only review evidence.** Store each verdict and findings separately under `docs/reviews/TASK-XXX/attempt-NN.md` (or the repository's established equivalent). Read [references/review-record.md](references/review-record.md) whenever recording a review.
+
+Use matching attempt numbers across capsule and review record. A correction creates a new capsule/review attempt; never overwrite the historical contract. Task status and current attempt pointers may remain in `docs/TASK_LIST.md` or compact Task Spec metadata.
 
 ## Planning mode
 
 For a new requirement:
 
-1. Clarify the business outcome, non-goals, affected data flow, compatibility needs, and observable acceptance criteria from available context.
-2. Choose the smallest design consistent with the current architecture. Avoid unrelated refactors and new dependencies.
-3. Split the work into ordered, independently verifiable tasks. Each task represents one coherent change and normally touches 1–3 primary implementation files. Required tests, types, migrations, generated files, and workflow metadata may be additional.
-4. Assign both a priority and a difficulty level when each Task is first created. These fields are mandatory; never leave either implicit.
-5. Create or update `docs/tasks/TASK-xxx.md` using `docs/tasks/TEMPLATE.md` and register it in `docs/TASK_LIST.md`. If the template lacks priority or difficulty fields, add them to the created Task Spec and update the template when it is maintained by this workflow.
-6. Mark only tasks with satisfied prerequisites as `READY`; later tasks remain `DRAFT`. Among simultaneously unblocked tasks, recommend the highest-priority task first. Priority never overrides an unsatisfied dependency.
-7. Update `docs/ARCHITECTURE.md` only when the effective architecture changes. Create an ADR for consequential or hard-to-reverse decisions.
+1. Establish the outcome, non-goals, data flow, compatibility needs, and observable acceptance criteria.
+2. Choose the smallest design consistent with current architecture; avoid unrelated refactors and dependencies.
+3. Split work into ordered, independently verifiable Tasks. A Task defaults to **1–3 primary implementation files**. If more than three are expected, split it. An exception is allowed only for an indivisible transaction, interface migration, or atomic data flow; record the reason in the Task Spec.
+4. Assign mandatory priority (`P0`–`P3`) and difficulty (`Low`, `Medium`, `High`). Priority controls urgency; difficulty controls execution capability. Do not infer one from the other.
+5. Create/update `docs/tasks/TASK-XXX.md` and register status and sequencing in `docs/TASK_LIST.md`. Mark only tasks with satisfied prerequisites `READY`; later tasks remain `DRAFT`.
+6. Update architecture documentation only when effective architecture changes; use an ADR for consequential or hard-to-reverse decisions.
+7. Before dispatch, create an Execution Capsule from confirmed facts. The Task Spec is only its `planning_source`, not the executor's default reading assignment.
 
-### Priority and difficulty classification
+Priority meanings: `P0` emergency/security/data-loss/release blocker; `P1` milestone critical path or material near-term risk; `P2` normal planned work (default); `P3` optional/deferred improvement.
 
-Every Task Spec and its `docs/TASK_LIST.md` entry must include:
+Difficulty meanings: `Low` explicit low-risk established pattern; `Medium` localized design/diagnosis with moderate interactions; `High` cross-module state/data flow, migration, auth/security, concurrency, performance, unfamiliar code, or substantial judgment.
 
-- `优先级`: `P0`, `P1`, `P2`, or `P3`.
-  - `P0`: active production outage, exploitable security issue, data-loss risk, or release-blocking emergency. Use rarely.
-  - `P1`: current milestone critical path, blocks other accepted tasks, or carries material near-term business or technical risk.
-  - `P2`: normal planned work with no immediate blocker. This is the default when no stronger reason exists.
-  - `P3`: optional improvement, cleanup, or deferred optimization with low near-term impact.
-- `难度等级`: `Low`, `Medium`, or `High`.
-  - `Low`: explicit, low-risk work following an established pattern, normally within 1–2 primary files.
-  - `Medium`: localized design or diagnosis with moderate interactions, normally within the micro-batch boundary.
-  - `High`: cross-module behavior, complex state or data flow, migrations, auth/security, concurrency, performance work, unfamiliar code, or substantial judgment.
+Never put implementation-agent, model, or vendor names in shared planning artifacts.
 
-Priority expresses urgency and sequencing; difficulty expresses the capability needed to execute the Task. Do not infer one from the other. Do not write product, vendor, model, or agent names such as Cursor or Kimi in the Task Spec's executor recommendation. Consumers may map difficulty levels to their own implementation agents outside the shared project documents.
+## Context-efficiency acceptance
 
-Present a concise design summary and identify the next `READY` task. The repository files, not the chat response, are the source of truth.
+A handoff is acceptable only when:
+
+- A new executor can begin after reading the capsule once and only its listed source anchors.
+- It need not read an entire prerequisite Task Spec or review history.
+- After context compaction it need only reread the capsule and currently modified files.
+- The responsible reviewer can see the file boundary and verification ceiling directly from the capsule.
+- Growth of Review Records does not increase future capsule or dispatch-prompt length.
+
+If confirmed facts cannot support these properties, do not dispatch. Resolve the missing planning facts or split the Task.
 
 ## Review mode
 
-Trigger review when the user supplies a diff, error, test result, or Implementation Report and asks for review.
+Review supplied diffs, errors, tests, or Implementation Reports for architecture alignment, correctness, boundary handling, types, state transitions, security, resource lifecycle, compatibility, scope discipline, and evidence against acceptance criteria.
 
-Check:
+Return exactly one verdict: `[PASSED]`, `[PASSED_WITH_NOTES]`, `[CHANGES_REQUESTED]`, or `[BLOCKED]`.
 
-- Alignment with the Task Spec, architecture, and constraints.
-- Correctness at boundaries, error handling, types, state transitions, security, resource lifecycle, and compatibility.
-- Scope discipline and whether verification proves the acceptance criteria.
+- Always create a separate Review Record for the attempt; keep historical findings out of the Task Spec.
+- On `[CHANGES_REQUESTED]`, keep the Task open and create a **delta capsule** for the next attempt containing only unresolved active findings. Preserve accepted implementation, narrow the file allowlist and verification scope, and do not resend the whole original Task.
+- On `[PASSED]` or `[PASSED_WITH_NOTES]`, mark the Task `PASSED`, record material notes, and promote only the next unblocked Task to `READY`.
+- On `[BLOCKED]`, record the required decision and emit no executable handoff.
 
-Return exactly one verdict:
+After every verdict, reassess affected non-passed Task priorities. Record each `old → new` change and reason in the Review Record, or explicitly record `已复核，无调整`. Include the same concise result under `### 优先级复核` in chat.
 
-- `[PASSED]`: acceptance criteria and verification are satisfied.
-- `[PASSED_WITH_NOTES]`: safe to accept; notes are non-blocking.
-- `[CHANGES_REQUESTED]`: concrete defects require correction.
-- `[BLOCKED]`: a product or architecture decision is required.
+## Executor handoff
 
-For `[CHANGES_REQUESTED]`, update the same Task Spec with focused refactor instructions and set its status accordingly. Do not create a new feature task or propose broad redesign unless the defect proves the approved design invalid.
+Treat `### 发给执行代理的下一步指令（难度：Low|Medium|High）` as a strict machine-readable dispatch signal. Emit it only when exactly one actionable, complete Execution Capsule exists. The handoff should point to the capsule, not the full Task Spec:
 
-For `[PASSED]` or `[PASSED_WITH_NOTES]`, set the reviewed task to `PASSED`, record material notes, and promote the next unblocked task from `DRAFT` to `READY`. Do not implement it.
+```markdown
+### 发给执行代理的下一步指令（难度：Medium）
+> 执行 @docs/execution/TASK-XXX/attempt-NN.md。只读取胶囊列出的源码锚点，只修改白名单文件，只运行定向验证，并按胶囊格式返回精简 Implementation Report。
+```
 
-### Approved Task Git sync
+Do not emit this heading for blocked, draft, locked, incomplete, ambiguous, or no-next-task states. Its absence means `no dispatch` to automation.
 
-Automatic Git sync is opt-in. Read `config.local.toml` in this Skill directory when present; otherwise use the disabled defaults in `config.example.toml`. Never publish `config.local.toml`.
+The Task Spec may be read by the executor only when the capsule names an exact section under `required_planning_lookup` and explains why that section cannot be projected safely. Never tell the executor to reread `TASK_LIST`, prior Review Records, or entire prerequisite Task Specs.
 
-When `git_sync.auto_commit_on_pass = true`, after a `[PASSED]` or `[PASSED_WITH_NOTES]` verdict and all required repository documentation updates:
+## Legacy compatibility
 
-- Inspect the final diff and status. Commit only the reviewed Task's implementation, tests, generated or migration files required by that Task, its Task Spec, `docs/TASK_LIST.md`, and architecture/ADR updates caused by that Task. Never include unrelated staged or unstaged changes.
-- Require all acceptance verification to have passed, no merge/rebase/cherry-pick conflict state, a named branch, no suspected secrets or credentials, and a complete Task record. Stop and report the reason when any condition fails.
-- Run `python3 scripts/commit_and_sync_task.py` with an explicit `--path` for every approved file. The script rejects unrelated staged files, sensitive-looking paths, detached HEAD, incomplete Git operations, whitespace errors, and missing upstreams.
-- Use commit subject `task(TASK-XXX): <short title>`. The commit body must record Task ID, spec path, review verdict, priority, difficulty, verification commands/results, and every committed path.
-- Report the resulting commit SHA, branch, committed paths, and push status in the review response so the approval remains traceable.
+Projects containing only `docs/tasks/TASK-XXX.md` remain valid for planning and review. Migrate lazily at the next dispatch or correction:
 
-When `git_sync.auto_push_on_pass = true`, pass `--push` and synchronize only through the current branch's existing upstream. Never create an upstream implicitly, force-push, amend, rewrite history, switch branches, merge, or open a pull request. If push fails, preserve the local commit, report that it is not synchronized, and do not retry automatically.
+- Inspect current repository facts and create attempt `01` only when objective, anchors, allowlist, limits, targeted verification, and baseline are confirmed.
+- Do not infer or fabricate missing allowlists, commands, baseline failures, or prerequisite contracts. Mark them `待确认` and withhold the dispatch signal until resolved.
+- Existing review history may remain in an old Task Spec. Do not copy it into a capsule; new reviews go to Review Records.
+- A legacy Task-Spec-only pointer is a compatibility fallback, not the preferred handoff, and must not claim capsule-level context guarantees.
 
-Complete this Git sync before selecting or dispatching the next Task. A successful review without a successful configured sync must clearly report the sync blocker, but it does not change the review verdict.
+## Approved Task Git sync
 
-After every review verdict, including repeated review of the same Task, reassess the priority of every non-`PASSED` Task affected by the result. Consider changed dependencies, newly discovered defects or risks, milestone impact, and current business urgency. Update `docs/TASK_LIST.md` and each affected Task Spec when a priority changes, and record `old → new` plus the reason in the review record. If no priority changes, explicitly record that priorities were reassessed and remained unchanged. Select the next `READY` Task only after this reassessment.
+Automatic Git sync is opt-in via private `config.local.toml`; otherwise use disabled defaults from `config.example.toml`. Never publish the local config.
 
-Every review response must include a concise `### 优先级复核` section listing each priority change and reason, or stating `已复核，无调整`. This section appears before the executor handoff.
+After `[PASSED]` or `[PASSED_WITH_NOTES]`, when enabled, commit only approved Task-scoped implementation, tests, required generated/migration files, the Task Spec, current capsule and Review Record, `docs/TASK_LIST.md`, and architecture/ADR changes caused by the Task. Require passed acceptance verification, a named branch, no Git operation in progress, no suspected secrets, and no unrelated staged files.
 
-### Executor handoff after review
+Run `python3 scripts/commit_and_sync_task.py` with an explicit `--path` for every approved file. Use subject `task(TASK-XXX): <short title>` and report commit SHA, branch, paths, and push status. Push only to the current branch's existing upstream when enabled. Never create upstreams, force-push, amend, rewrite history, switch branches, merge, or open a PR. Preserve a local commit when push fails; do not retry automatically.
 
-Treat the heading `### 发给执行代理的下一步指令（难度：Low|Medium|High）` as a strict machine-readable dispatch signal. Output it only when there is exactly one actionable handoff after the verdict, priority reassessment, and repository updates.
+Complete configured sync before selecting the next Task. A sync blocker does not change the review verdict.
 
-An actionable handoff exists only when either:
+## Channel adapters
 
-- `[CHANGES_REQUESTED]` has concrete, recorded correction instructions for the reviewed Task, with a complete Task Spec, known priority and difficulty, and no unresolved product or architecture decision; or
-- a next Task is `READY`, all prerequisites are satisfied, its Task Spec is complete, and priority and difficulty are known.
+The core skill stops at a vendor-neutral capsule and review state. Dispatch, authentication, process recovery, model flags, and channel permissions belong to adapters. Any downstream agent may execute a capsule when its capabilities match the recorded difficulty and the user or dispatch system authorizes that channel.
 
-If these conditions are not met, do not output the handoff heading, an empty handoff block, a placeholder, an instruction to wait, or a message addressed to an implementation agent. Report the situation only in the ordinary review/status text for the user. This includes `[BLOCKED]`, a completed stage with no next Task, locked or `DRAFT` Tasks, incomplete planning data, unresolved dependencies, and cases where no single executable Task can be selected. The absence of the heading means `no dispatch` to downstream automation.
-
-- For `[CHANGES_REQUESTED]`, normally return the correction at the same difficulty level. Raise the difficulty when the defect reveals wider impact, architectural uncertainty, security/data risk, or repeated failed correction; update the Task Spec when it changes. Include the Task ID, priority, difficulty, defect summary, required correction, affected files, constraints, and exact verification commands or observable checks. Require a concise Implementation Report and diff summary. Keep the work within the existing task.
-- For `[PASSED]` or `[PASSED_WITH_NOTES]`, address the highest-priority unblocked `READY` Task after priority reassessment. Base the instruction on its Task Spec, and include the Task ID, priority, difficulty, spec path, objective, affected files, constraints, and verification. Non-blocking review notes may be mentioned only when relevant to that next task.
-- If no actionable handoff exists, state the completion, lock, missing planning information, dependency, or required user decision outside any executor-handoff section. Do not invent a task.
-
-The executor instruction must stand on its own without relying on the surrounding review text. It must direct the executor to implement, test, and report only; it must not ask the executor to select or execute this Codex-only skill, redefine architecture, expand scope, or modify unrelated files.
-
-### Cursor CLI dispatch
-
-Cursor dispatch is optional and CLI-only. Never use GUI automation, computer control, screenshots, window discovery, editor chat navigation, or GUI fallback for this workflow.
-
-- Do not invoke Cursor CLI until the user explicitly authorizes that specific Task dispatch. Enabling this workflow is not standing authorization for future tasks.
-- Before dispatch, resolve and verify the repository absolute path, Task ID, Task Spec path, priority, difficulty, and that the user selected Cursor CLI for a `READY` Task or approved correction. The shared Task Spec must remain vendor-neutral. Do not guess a repository from its display name or infer the user's local difficulty-to-agent mapping.
-- Confirm `agent` or `cursor-agent` is installed and authenticated. If the CLI is unavailable or authentication fails, preserve the copyable handoff and report the blocker; do not fall back to the Cursor GUI.
-- Run Cursor CLI with the repository root as its working directory. Start a fresh non-interactive session for each Task; do not use `--resume` or `--continue` unless the user explicitly requests preserved Cursor context.
-- Send only a compact Task-Spec pointer when the repository contains the complete current instructions: `执行 @docs/tasks/TASK-XXX.md；严格遵守 AGENTS.md 与任务约束，只完成该任务；完成验证后输出 Implementation Report 和 diff 摘要。`
-- Use print mode with text or structured output. Permit file modification only for an authorized implementation Task; use the installed CLI's supported non-interactive write flag when required. Do not enable broader permissions than the Task needs.
-- Prefer `python3 scripts/dispatch_cursor_cli.py --repo <absolute-path> --task docs/tasks/TASK-XXX.md` for authorized dispatch, resolving the script path relative to this Skill directory. Its default idle threshold is 12 minutes without a `stream-json` event. Add `--allow-recovery` only when the user has authorized automatic recovery for that dispatch.
-- On the first confirmed stall, the dispatcher terminates the current CLI process before recovery, records output in a temporary log, invokes the macOS `Developer: Restart Extension Host` command through `scripts/restart_cursor_extension_host.sh`, and runs one read-only health probe.
-- If the stalled attempt changed the working tree, recover the Extension Host but do not retry; preserve the partial changes for Codex review. If the working tree state is unchanged and the health probe passes, retry once in a fresh CLI session. If that retry stalls or fails, stop and report `[BLOCKED]`; never restart or retry in a loop.
-- Automatic recovery requires macOS, a running Cursor application, Accessibility permission for the calling terminal/Codex process, and explicit authorization for the current dispatch. If any prerequisite is missing, stop without GUI fallback or process-killing workarounds.
-- Do not start parallel Cursor agents, poll another session, or send follow-ups automatically. A CLI process may finish and its final output may be captured, but further execution requires a new user request or review decision.
-- After the CLI exits, report the command outcome and retain its Implementation Report for Codex review. A zero exit status or completion message is not a review verdict.
-- Other implementation-agent handoffs remain manual unless the user separately defines and authorizes a compatible dispatch workflow.
-- Do not offer dispatch for `[BLOCKED]` or when no actionable next task exists.
+- For an explicitly authorized Cursor CLI dispatch, read [references/adapters/cursor-cli.md](references/adapters/cursor-cli.md). Do not load it for ordinary planning or review.
+- Other channels require their own adapter. Do not embed their model behavior in Task Specs or capsules.
 
 ## Response shape
 
-Keep chat output compact:
+Keep planning and review chat responses compact. Report the Task ID/status, priority, difficulty, relevant artifact paths, constraints, and targeted verification. The repository artifacts carry detail.
 
-```markdown
-### 架构/技术设计简述
-[2–3 sentences]
-
-### Task Spec: TASK-XXX [title]
-- 状态与 spec path
-- 优先级
-- 难度等级
-- 涉及文件
-- 前置条件
-- 核心变更摘要
-- 关键约束
-- 验证方式
-```
-
-The complete specification remains in `docs/tasks/TASK-xxx.md`.
-
-For review responses with exactly one actionable handoff, append:
-
-```markdown
-### 发给执行代理的下一步指令（难度：[Low|Medium|High]）
-> [A vendor-neutral, self-contained implementation or correction prompt that the user can copy into a suitable executor.]
-```
-
-For review responses without an actionable handoff, omit this section entirely.
-
-Only when an actionable handoff exists, the user has mapped it to Cursor, and it has not yet been dispatched, finish with a concise confirmation question such as:
-
-```markdown
-是否授权通过 Cursor CLI 在项目 `[absolute path]` 中执行 `TASK-XXX`？
-```
+When the user asks for an artifact definition or migration explanation, report the three responsibility boundaries and compatibility behavior explicitly. When exactly one actionable capsule exists, append the machine-readable handoff heading above; otherwise omit it entirely.
