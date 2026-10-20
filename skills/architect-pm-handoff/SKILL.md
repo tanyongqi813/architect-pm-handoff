@@ -28,7 +28,7 @@ Do not invent missing paths, interfaces, file allowlists, commands, or baseline 
 
 Keep these responsibilities separate:
 
-1. **Task Spec — durable planning facts.** Store business outcome and non-goals, architecture and compatibility requirements, acceptance criteria, dependencies, priority, difficulty, primary interfaces, and long-lived constraints. Do not append execution transcripts or accumulated review history.
+1. **Task Spec — durable planning facts.** Store business outcome and non-goals, architecture and compatibility requirements, acceptance criteria, dependencies, priority, difficulty, primary interfaces, and long-lived constraints. Do not append execution transcripts or accumulated review history. Read [references/task-spec.md](references/task-spec.md) when creating or migrating a Task Spec.
 2. **Execution Capsule — one-attempt execution contract.** Create a short, self-contained, immutable-per-attempt projection under `docs/execution/TASK-XXX/attempt-NN.md` (or the repository's established equivalent). Read [references/executor-handoff.md](references/executor-handoff.md) whenever creating or revising a capsule.
 3. **Review Record — append-only review evidence.** Store each verdict and findings separately under `docs/reviews/TASK-XXX/attempt-NN.md` (or the repository's established equivalent). Read [references/review-record.md](references/review-record.md) whenever recording a review.
 
@@ -63,6 +63,8 @@ A handoff is acceptable only when:
 - Growth of Review Records does not increase future capsule or dispatch-prompt length.
 
 If confirmed facts cannot support these properties, do not dispatch. Resolve the missing planning facts or split the Task.
+
+For a deterministic structure check, run `python3 scripts/validate_handoff_artifacts.py` in `planning`, `dispatch`, `review`, or explicit `legacy` mode. This validator complements review judgment; it does not invent missing facts.
 
 ## Review mode
 
