@@ -1,0 +1,52 @@
+# Review Record contract
+
+Read this reference only when recording, validating, or explaining a review.
+
+## Purpose and location
+
+Use one immutable record per attempt: `docs/reviews/TASK-XXX/attempt-NN.md`. The record preserves evidence and history for planners/reviewers without enlarging later execution prompts. A future capsule reads only the latest unresolved finding IDs, not the full history.
+
+## Template
+
+```markdown
+# Review Record — TASK-XXX / attempt-NN
+
+- task_id: `TASK-XXX`
+- attempt: `NN`
+- capsule: `docs/execution/TASK-XXX/attempt-NN.md` or `legacy-task-spec-only`
+- reviewed_at: `YYYY-MM-DD`
+- verdict: `PASSED | PASSED_WITH_NOTES | CHANGES_REQUESTED | BLOCKED`
+- reviewer_role: `lead-ai`
+
+## 审查范围
+- implementation_report: [path/link/inline source]
+- diff_scope: [reviewed paths or commit]
+- acceptance_slice: [criteria evaluated this attempt]
+
+## 验证证据
+- `[command/check]` → `PASS | FAIL | NOT_RUN`: [concise evidence]
+
+## Findings
+- `F-01` — `active | resolved | accepted_note`; severity: `blocking | non_blocking`; anchor: `path::symbol`; [problem and required outcome]
+
+## 架构与范围结论
+- alignment: [concise result]
+- scope: [within capsule / deviation]
+- preserved_behavior: [important accepted behavior]
+
+## 优先级复核
+- `已复核，无调整`, or `TASK-XXX P2 → P1`: [reason]
+
+## 下一状态
+- task_status: `READY_FOR_CORRECTION | PASSED | BLOCKED`
+- next_capsule: `docs/execution/TASK-XXX/attempt-(NN+1).md | none`
+- active_findings_for_next_attempt: [`F-01`] or `none`
+```
+
+## Rules
+
+- Give finding IDs stable meaning within the Task. Never reuse an ID for a different defect.
+- The next correction capsule carries only `active` findings; do not copy resolved findings or review narrative.
+- A `PASSED_WITH_NOTES` note is not silently converted into future execution work. Create a new planned Task only if accepted and prioritized.
+- Keep raw logs and large diffs outside the record; link or summarize evidence.
+- Do not append repeated reviews to the Task Spec. For legacy specs with embedded history, leave existing content intact and start Review Records at the next review.
