@@ -85,6 +85,7 @@ docs/execution/TASK-XXX/attempt-NN.md
 - 已知基线失败；
 - 停止条件；
 - 固定的 Implementation Report 格式。
+- 本轮验收切片、单次执行预算及预算停止后的 checkpoint 格式。
 
 新实现建议控制在 1500–2000 中文字，普通修正建议控制在 800–1200 中文字。无法在上限内清晰表达时，优先继续拆分 Task。
 
@@ -106,6 +107,7 @@ Review Record 保存：
 - 架构和范围结论；
 - 优先级复核；
 - 下一状态与下一胶囊路径。
+- `next_action`，用于区分普通 finding 修正与 checkpoint 续接。
 
 下一轮修正胶囊只继承仍为 `active` 的 findings，不携带已经解决的历史问题。完整模板见 [`references/review-record.md`](references/review-record.md)。
 
@@ -127,6 +129,8 @@ Review Record 保存：
    ├─ CHANGES_REQUESTED → 仅针对 active findings 生成 delta Capsule
    └─ BLOCKED → 等待产品、架构或权限决策，不派发
 ```
+
+单次预算耗尽时，执行者必须报告 `outcome: partial` 与 `handoff: checkpoint`，不能写成 `completed`，也不能把额度不足混同为等待外部决策的 `blocked`。Checkpoint 固定包含工作区/分支、已改文件、已完成内容、剩余缺口，以及现有验证是否覆盖最新代码。负责人必须检查实际 diff 后才能验收或生成下一份增量胶囊。
 
 只有存在一个完整、明确且可执行的 Capsule 时，负责人 AI 才输出：
 
@@ -166,6 +170,8 @@ Review Record 保存：
 - 不重复已经通过的验证；
 - 不复制原任务叙述或已解决的评审历史。
 
+渠道自动执行默认只允许“初次执行 + 一次纠偏”。一次纠偏后仍未完成时停止自动续接，由负责人检查当前代码，并以 `revision_reason: checkpoint_resume` 生成只包含剩余缺口的下一 attempt。不得无界续接会话，也不得重新发送完整原任务。
+
 ## 旧项目兼容
 
 只有 `docs/tasks/TASK-XXX.md` 的旧项目仍可继续使用。系统采用惰性迁移：
@@ -185,9 +191,13 @@ Review Record 保存：
 
 ```text
 references/adapters/cursor-cli.md
+references/adapters/channel-budgeting.md
+references/adapters/kimi.md
 ```
 
 其他执行渠道可以增加各自 adapter，但不得把供应商名称或模型特性写进共享 Task Spec、Capsule 或 Review Record。
+
+额度查询、会话续接、模型选择和默认预算属于渠道 adapter。若渠道没有权威额度接口，应将剩余额度标为未知，不得声称可以精确预测。Capsule 中的时间或调用次数默认只是提示词软约束；只有运行器真实实施并报告限制时，才能标记为强制限制。
 
 正常 Cursor 派发不得使用 GUI 自动化或 GUI fallback。唯一例外是用户为当前 dispatch 明确传入 `--allow-recovery` 后，允许执行一次 macOS Extension Host GUI 恢复；恢复不是替代派发渠道，不得循环或扩大授权。若工作区已经产生变化，只恢复环境，不自动重试。
 
@@ -227,6 +237,7 @@ docs/
 - 上下文压缩后只需重读胶囊和当前修改文件；
 - 负责人可以直接看到文件范围和验证上限；
 - Review Record 持续增长不会增加后续执行提示词长度。
+- 额度或上下文中断后，只需读取新胶囊、checkpoint 和当前修改文件，不需重读完整规格。
 
 ## 结构一致性校验
 

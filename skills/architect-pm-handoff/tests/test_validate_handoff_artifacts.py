@@ -49,9 +49,12 @@ CAPSULE = """# Execution Capsule — TASK-016 / attempt-02
 - priority: `P1`
 - difficulty: `Medium`
 - required_planning_lookup: `none`
+- capsule_schema: `2`
 
 ## 本轮唯一目标
 Coalesce refresh.
+## 本轮验收切片
+- Concurrent 401 requests issue one refresh and preserve retry behavior.
 ## 已确认事实（禁止重新推导）
 - Existing retry stays.
 ## Active findings
@@ -71,13 +74,25 @@ Coalesce refresh.
 - No full suite.
 ## 已知基线失败
 - none confirmed
+## 单次执行预算
+- budget_mode: `prompt_soft`
+- soft_timebox_minutes: `30`
+- soft_call_limit: `12`
+- runner_limit_reference: `none`
+- max_correction_rounds: `1`
+- on_budget_stop: `return partial + checkpoint; do not claim completed or blocked`
 ## 停止条件
 - Scope expands.
 ## 精简 Implementation Report（固定格式）
-- outcome: completed | blocked
+- outcome: completed | partial | blocked
+- handoff: none | checkpoint
+- stop_reason: none | soft_budget | runner_limit | context_limit | external_decision
+- workspace_branch: workspace @ branch
 - changed_files: paths
+- completed_scope: completed work
+- remaining_gaps: unfinished work or none
 - anchors_touched: symbols
-- verification: command results
+- verification: command results; latest_code_covered: yes/no
 - active_findings: finding status
 - scope_or_baseline_notes: new facts
 """
@@ -103,6 +118,7 @@ REVIEW = """# Review Record — TASK-016 / attempt-02
 - 已复核，无调整
 ## 下一状态
 - task_status: `PASSED`
+- next_action: `none`
 - next_capsule: `none`
 - active_findings_for_next_attempt: `none`
 """
@@ -173,6 +189,76 @@ class ArtifactValidatorTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("unresolved facts", result.stdout)
 
+    def test_schema_two_requires_budget_fields(self) -> None:
+        path = self.repo / "docs/execution/TASK-016/attempt-02.md"
+        path.write_text(
+            CAPSULE.replace("- soft_call_limit: `12`\n", ""), encoding="utf-8"
+        )
+        result = self.run_validator(
+            "dispatch", "--capsule", "docs/execution/TASK-016/attempt-02.md"
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("execution budget missing field: soft_call_limit", result.stdout)
+
+    def test_schema_two_requires_partial_checkpoint_contract(self) -> None:
+        path = self.repo / "docs/execution/TASK-016/attempt-02.md"
+        path.write_text(
+            CAPSULE.replace(
+                "return partial + checkpoint; do not claim completed or blocked",
+                "return blocked",
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_validator(
+            "dispatch", "--capsule", "docs/execution/TASK-016/attempt-02.md"
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("partial + checkpoint", result.stdout)
+
+    def test_legacy_capsule_remains_compatible_with_warning(self) -> None:
+        path = self.repo / "docs/execution/TASK-016/attempt-02.md"
+        legacy = CAPSULE.replace("- capsule_schema: `2`\n", "")
+        legacy = legacy.replace(
+            "## 本轮验收切片\n- Concurrent 401 requests issue one refresh and preserve retry behavior.\n",
+            "",
+        )
+        legacy = legacy.replace(
+            "## 单次执行预算\n- budget_mode: `prompt_soft`\n"
+            "- soft_timebox_minutes: `30`\n- soft_call_limit: `12`\n"
+            "- runner_limit_reference: `none`\n- max_correction_rounds: `1`\n"
+            "- on_budget_stop: `return partial + checkpoint; do not claim completed or blocked`\n",
+            "",
+        )
+        path.write_text(legacy, encoding="utf-8")
+        result = self.run_validator(
+            "dispatch", "--capsule", "docs/execution/TASK-016/attempt-02.md"
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Legacy Capsule", result.stdout)
+
+    def test_checkpoint_resume_delta_is_valid(self) -> None:
+        path = self.repo / "docs/execution/TASK-016/attempt-02.md"
+        path.write_text(
+            CAPSULE.replace("changes_requested", "checkpoint_resume")
+            .replace("- `F-02`: duplicate refresh.", "- none; remaining gaps are projected below."),
+            encoding="utf-8",
+        )
+        result = self.run_validator(
+            "dispatch", "--capsule", "docs/execution/TASK-016/attempt-02.md"
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_capsule_rejects_unknown_revision_reason(self) -> None:
+        path = self.repo / "docs/execution/TASK-016/attempt-02.md"
+        path.write_text(
+            CAPSULE.replace("changes_requested", "checkpoint_resum"), encoding="utf-8"
+        )
+        result = self.run_validator(
+            "dispatch", "--capsule", "docs/execution/TASK-016/attempt-02.md"
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("invalid revision_reason", result.stdout)
+
     def test_task_rejects_vendor_bound_executor(self) -> None:
         path = self.repo / "docs/tasks/TASK-016.md"
         path.write_text(TASK + "\n执行者: Cursor\n", encoding="utf-8")
@@ -203,6 +289,16 @@ class ArtifactValidatorTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("task_status to PASSED", result.stdout)
 
+    def test_schema_two_review_requires_next_action(self) -> None:
+        path = self.repo / "docs/reviews/TASK-016/attempt-02.md"
+        path.write_text(REVIEW.replace("- next_action: `none`\n", ""), encoding="utf-8")
+        result = self.run_validator(
+            "review", "--capsule", "docs/execution/TASK-016/attempt-02.md",
+            "--review", "docs/reviews/TASK-016/attempt-02.md"
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("missing next-state field: next_action", result.stdout)
+
     def test_review_rejects_mismatched_attempt(self) -> None:
         path = self.repo / "docs/reviews/TASK-016/attempt-02.md"
         path.write_text(REVIEW.replace("- attempt: `02`", "- attempt: `03`"), encoding="utf-8")
@@ -223,12 +319,45 @@ class ArtifactValidatorTests(unittest.TestCase):
         changes = REVIEW.replace("- verdict: `PASSED`", "- verdict: `CHANGES_REQUESTED`")
         changes = changes.replace("- F-02 resolved", "- F-02 active")
         changes = changes.replace(
-            "- task_status: `PASSED`\n- next_capsule: `none`\n- active_findings_for_next_attempt: `none`",
+            "- task_status: `PASSED`\n- next_action: `none`\n"
+            "- next_capsule: `none`\n- active_findings_for_next_attempt: `none`",
             "- task_status: `READY_FOR_CORRECTION`\n"
+            "- next_action: `correction`\n"
             "- next_capsule: `docs/execution/TASK-016/attempt-03.md`\n"
             "- active_findings_for_next_attempt: `F-02`",
         )
         (self.repo / "docs/reviews/TASK-016/attempt-02.md").write_text(changes, encoding="utf-8")
+        result = self.run_validator(
+            "review", "--capsule", "docs/execution/TASK-016/attempt-02.md",
+            "--review", "docs/reviews/TASK-016/attempt-02.md"
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_checkpoint_resume_passes_complete_review_chain(self) -> None:
+        next_capsule = CAPSULE.replace("attempt-02", "attempt-03").replace(
+            "- attempt: `02`", "- attempt: `03`"
+        ).replace(
+            "- revision_reason: `changes_requested`",
+            "- revision_reason: `checkpoint_resume`",
+        ).replace(
+            "- `F-02`: duplicate refresh.",
+            "- none; continuation is limited to reviewed checkpoint gaps.",
+        )
+        (self.repo / "docs/execution/TASK-016/attempt-03.md").write_text(
+            next_capsule, encoding="utf-8"
+        )
+        review = REVIEW.replace("- verdict: `PASSED`", "- verdict: `CHANGES_REQUESTED`")
+        review = review.replace(
+            "- task_status: `PASSED`\n- next_action: `none`\n"
+            "- next_capsule: `none`\n- active_findings_for_next_attempt: `none`",
+            "- task_status: `READY_FOR_CORRECTION`\n"
+            "- next_action: `checkpoint_resume`\n"
+            "- next_capsule: `docs/execution/TASK-016/attempt-03.md`\n"
+            "- active_findings_for_next_attempt: `none`",
+        )
+        (self.repo / "docs/reviews/TASK-016/attempt-02.md").write_text(
+            review, encoding="utf-8"
+        )
         result = self.run_validator(
             "review", "--capsule", "docs/execution/TASK-016/attempt-02.md",
             "--review", "docs/reviews/TASK-016/attempt-02.md"

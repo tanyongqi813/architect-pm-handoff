@@ -34,6 +34,10 @@ CAPSULE_HEADINGS = {
     "停止条件",
     "精简 Implementation Report（固定格式）",
 }
+CAPSULE_V2_HEADINGS = {
+    "本轮验收切片",
+    "单次执行预算",
+}
 REVIEW_HEADINGS = {
     "审查范围",
     "验证证据",
@@ -61,6 +65,8 @@ VENDOR_BINDING = re.compile(
 )
 ALLOWED_VERDICTS = {"PASSED", "PASSED_WITH_NOTES", "CHANGES_REQUESTED", "BLOCKED"}
 ALLOWED_REVIEWER_ROLES = {"lead-ai"}
+ALLOWED_REVISION_REASONS = {"initial", "changes_requested", "checkpoint_resume"}
+ALLOWED_NEXT_ACTIONS = {"none", "correction", "checkpoint_resume"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -146,17 +152,34 @@ def validate_task(
 def validate_capsule(
     text: str, task_id: str | None, task_facts: dict[str, str | None],
     task_path: str, capsule_path: str, errors: list[str], warnings: list[str]
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, str | None, str | None]:
     missing = sorted(CAPSULE_HEADINGS - headings(text))
     if missing:
         errors.append(f"Capsule missing headings: {', '.join(missing)}")
     values = {key: field(text, key) for key in (
         "planning_source", "task_id", "attempt", "revision_reason", "priority",
-        "difficulty", "required_planning_lookup"
+        "difficulty", "required_planning_lookup", "capsule_schema"
     )}
-    for key, value in values.items():
+    for key in (
+        "planning_source", "task_id", "attempt", "revision_reason", "priority",
+        "difficulty", "required_planning_lookup"
+    ):
+        value = values[key]
         if value is None:
             errors.append(f"Capsule missing metadata field: {key}")
+    schema = values["capsule_schema"]
+    is_v2 = schema == "2"
+    if schema not in {None, "1", "2"}:
+        errors.append(f"Capsule has unsupported capsule_schema: {schema}")
+    if schema is None:
+        warnings.append("Legacy Capsule has no capsule_schema; budget/checkpoint rules were not enforced")
+    if is_v2:
+        missing_v2 = sorted(CAPSULE_V2_HEADINGS - headings(text))
+        if missing_v2:
+            errors.append(f"Capsule schema 2 missing headings: {', '.join(missing_v2)}")
+    revision_reason = values["revision_reason"]
+    if revision_reason not in ALLOWED_REVISION_REASONS:
+        errors.append(f"Capsule has invalid revision_reason: {revision_reason}")
     if values["planning_source"] and values["planning_source"].strip("`") != task_path:
         errors.append("Capsule planning_source does not match --task")
     if task_id and values["task_id"] != task_id:
@@ -205,20 +228,59 @@ def validate_capsule(
     ):
         if not re.search(rf"^-\s*{re.escape(key)}:", report, re.M):
             errors.append(f"Capsule Implementation Report missing field: {key}")
-    if values["revision_reason"] == "changes_requested":
+    if is_v2:
+        acceptance_slice = section(text, "本轮验收切片")
+        if not acceptance_slice or "待确认" in acceptance_slice:
+            errors.append("Capsule schema 2 requires a confirmed acceptance slice")
+        budget = section(text, "单次执行预算")
+        budget_values = {key: field(budget, key) for key in (
+            "budget_mode", "soft_timebox_minutes", "soft_call_limit",
+            "runner_limit_reference", "max_correction_rounds", "on_budget_stop"
+        )}
+        for key, value in budget_values.items():
+            if value is None:
+                errors.append(f"Capsule execution budget missing field: {key}")
+        if budget_values["budget_mode"] not in {"prompt_soft", "runner_enforced", "mixed"}:
+            errors.append("Capsule budget_mode must distinguish prompt_soft and runner enforcement")
+        if budget_values["max_correction_rounds"] != "1":
+            errors.append("Capsule max_correction_rounds must be 1")
+        if budget_values["budget_mode"] in {"runner_enforced", "mixed"} and budget_values["runner_limit_reference"] in {None, "none"}:
+            errors.append("Runner-enforced budget requires an adapter-owned runner_limit_reference")
+        if budget_values["budget_mode"] == "prompt_soft" and budget_values["runner_limit_reference"] != "none":
+            errors.append("Prompt-soft budget must not claim a runner-enforced limit")
+        stop_value = budget_values["on_budget_stop"] or ""
+        if "partial" not in stop_value or "checkpoint" not in stop_value:
+            errors.append("Budget stop must require partial + checkpoint handoff")
+        for key in (
+            "handoff", "stop_reason", "workspace_branch", "completed_scope",
+            "remaining_gaps"
+        ):
+            if not re.search(rf"^-\s*{re.escape(key)}:", report, re.M):
+                errors.append(f"Capsule checkpoint report missing field: {key}")
+        outcome = field(report, "outcome") or ""
+        if "partial" not in outcome or "blocked" not in outcome or "completed" not in outcome:
+            errors.append("Capsule outcome must distinguish completed, partial, and blocked")
+        verification = field(report, "verification") or ""
+        if "latest_code_covered" not in verification:
+            errors.append("Capsule verification report must record latest_code_covered")
+    if values["revision_reason"] in {"changes_requested", "checkpoint_resume"}:
         active = section(text, "Active findings")
-        if not re.search(r"F-[A-Za-z0-9_-]+", active) or re.search(r"\bnone\b", active, re.I):
+        if values["revision_reason"] == "changes_requested" and (
+            not re.search(r"F-[A-Za-z0-9_-]+", active)
+            or re.search(r"\bnone\b", active, re.I)
+        ):
             errors.append("Delta capsule must contain only explicit unresolved finding IDs")
     if VENDOR_BINDING.search(text):
         errors.append("Capsule binds an executor role to a vendor/model")
     if len(text) > 8000:
         warnings.append("Capsule is unusually long; split the Task or reduce projected context")
-    return values["attempt"], values["revision_reason"]
+    return values["attempt"], values["revision_reason"], schema
 
 
 def validate_review(
     text: str, repo: Path, review_path: str, task_id: str | None,
-    attempt: str | None, capsule_path: str, errors: list[str]
+    attempt: str | None, capsule_path: str, capsule_schema: str | None,
+    errors: list[str]
 ) -> None:
     missing = sorted(REVIEW_HEADINGS - headings(text))
     if missing:
@@ -246,6 +308,7 @@ def validate_review(
         errors.append(f"Review Record has invalid reviewer_role: {reviewer_role}")
 
     task_status = field(text, "task_status")
+    next_action = field(text, "next_action")
     next_capsule = field(text, "next_capsule")
     active_next = field(text, "active_findings_for_next_attempt")
     for key, value in (
@@ -254,18 +317,29 @@ def validate_review(
     ):
         if value is None:
             errors.append(f"Review Record missing next-state field: {key}")
+    if next_action is None:
+        if capsule_schema == "2":
+            errors.append("Review Record missing next-state field: next_action")
+        elif verdict == "CHANGES_REQUESTED":
+            next_action = "correction"
+        else:
+            next_action = "none"
     finding_section = section(text, "Findings")
     active_finding_ids = set(
         re.findall(r"(F-[A-Za-z0-9_-]+).*?\bactive\b", finding_section, re.I)
     )
     next_ids = set(re.findall(r"F-[A-Za-z0-9_-]+", active_next or ""))
     next_is_none = (active_next or "").strip().lower() == "none"
+    if next_action not in ALLOWED_NEXT_ACTIONS:
+        errors.append(f"Review Record has invalid next_action: {next_action}")
 
     if verdict in {"PASSED", "PASSED_WITH_NOTES"}:
         if task_status != "PASSED":
             errors.append("Passed review must set task_status to PASSED")
         if next_capsule != "none":
             errors.append("Passed review must not point to a next capsule")
+        if next_action != "none":
+            errors.append("Passed review must set next_action to none")
         if not next_is_none or active_finding_ids:
             errors.append("Passed review must not retain active findings")
         evidence = section(text, "验证证据")
@@ -274,10 +348,16 @@ def validate_review(
     elif verdict == "CHANGES_REQUESTED":
         if task_status != "READY_FOR_CORRECTION":
             errors.append("CHANGES_REQUESTED must set task_status to READY_FOR_CORRECTION")
-        if not active_finding_ids:
-            errors.append("CHANGES_REQUESTED requires at least one active finding")
-        if not next_ids or next_ids != active_finding_ids:
-            errors.append("Next-attempt finding IDs must match active review findings")
+        if next_action == "correction":
+            if not active_finding_ids:
+                errors.append("Correction requires at least one active finding")
+            if not next_ids or next_ids != active_finding_ids:
+                errors.append("Correction finding IDs must match active review findings")
+        elif next_action == "checkpoint_resume":
+            if active_finding_ids or not next_is_none:
+                errors.append("Checkpoint resume must not manufacture active findings")
+        elif next_action is not None:
+            errors.append("CHANGES_REQUESTED next_action must be correction or checkpoint_resume")
         if not next_capsule or next_capsule == "none":
             errors.append("CHANGES_REQUESTED must point to the next attempt capsule")
         elif review_task and review_attempt and review_attempt.isdigit():
@@ -297,18 +377,28 @@ def validate_review(
                         errors.append("Next Capsule task_id does not match Review Record")
                     if field(next_text, "attempt") != expected_attempt:
                         errors.append("Next Capsule attempt metadata is not the next attempt")
-                    if field(next_text, "revision_reason") != "changes_requested":
-                        errors.append("Next Capsule must be a changes_requested delta")
+                    expected_reason = (
+                        "changes_requested" if next_action == "correction"
+                        else "checkpoint_resume"
+                    )
+                    if field(next_text, "revision_reason") != expected_reason:
+                        errors.append(
+                            f"Next Capsule revision_reason must match next_action: {expected_reason}"
+                        )
                     capsule_findings = set(
                         re.findall(r"F-[A-Za-z0-9_-]+", section(next_text, "Active findings"))
                     )
-                    if capsule_findings != active_finding_ids:
+                    if next_action == "correction" and capsule_findings != active_finding_ids:
                         errors.append("Next Capsule findings do not match active review findings")
+                    if next_action == "checkpoint_resume" and capsule_findings:
+                        errors.append("Checkpoint-resume Capsule must not contain active finding IDs")
     elif verdict == "BLOCKED":
         if task_status != "BLOCKED":
             errors.append("BLOCKED review must set task_status to BLOCKED")
         if next_capsule != "none" or not next_is_none:
             errors.append("BLOCKED review must not dispatch a next capsule or active findings")
+        if next_action != "none":
+            errors.append("BLOCKED review must set next_action to none")
     if VENDOR_BINDING.search(text):
         errors.append("Review Record binds an executor role to a vendor/model")
 
@@ -338,13 +428,14 @@ def main() -> int:
         )
 
     attempt: str | None = None
+    capsule_schema: str | None = None
     capsule: Path | None = None
     if args.capsule:
         capsule, capsule_error = resolve(repo, args.capsule, "Capsule")
         if capsule_error:
             errors.append(capsule_error)
         elif args.mode != "legacy":
-            attempt, _ = validate_capsule(
+            attempt, _, capsule_schema = validate_capsule(
                 capsule.read_text(encoding="utf-8"), task_id, task_facts,
                 args.task, args.capsule, errors, warnings
             )
@@ -356,7 +447,7 @@ def main() -> int:
         elif args.mode != "legacy":
             validate_review(
                 review.read_text(encoding="utf-8"), repo, args.review,
-                task_id, attempt, args.capsule or "", errors
+                task_id, attempt, args.capsule or "", capsule_schema, errors
             )
 
     result = {

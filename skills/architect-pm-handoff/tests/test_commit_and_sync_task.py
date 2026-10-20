@@ -104,6 +104,7 @@ REVIEW = """# Review Record — TASK-001 / attempt-01
 - 已复核，无调整
 ## 下一状态
 - task_status: `PASSED`
+- next_action: `none`
 - next_capsule: `none`
 - active_findings_for_next_attempt: `none`
 """

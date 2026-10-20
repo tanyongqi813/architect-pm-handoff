@@ -45,6 +45,7 @@ For a new requirement:
 5. Create/update `docs/tasks/TASK-XXX.md` and register status and sequencing in `docs/TASK_LIST.md`. Mark only tasks with satisfied prerequisites `READY`; later tasks remain `DRAFT`.
 6. Update architecture documentation only when effective architecture changes; use an ADR for consequential or hard-to-reverse decisions.
 7. Before dispatch, create an Execution Capsule from confirmed facts. The Task Spec is only its `planning_source`, not the executor's default reading assignment.
+8. Give the attempt one acceptance slice and a single-run budget. Label prompt time/call limits as soft; claim runner enforcement only when the selected adapter implements it.
 
 Priority meanings: `P0` emergency/security/data-loss/release blocker; `P1` milestone critical path or material near-term risk; `P2` normal planned work (default); `P3` optional/deferred improvement.
 
@@ -77,6 +78,10 @@ Return exactly one verdict: `[PASSED]`, `[PASSED_WITH_NOTES]`, `[CHANGES_REQUEST
 - On `[PASSED]` or `[PASSED_WITH_NOTES]`, mark the Task `PASSED`, record material notes, and promote only the next unblocked Task to `READY`.
 - On `[BLOCKED]`, record the required decision and emit no executable handoff.
 
+An executor budget stop is not a review verdict. Record it as `outcome: partial` with `handoff: checkpoint`, inspect the actual diff and verification freshness, then either accept completed scope, request changes, or issue a new `checkpoint_resume` delta capsule. Do not treat an executor summary as proof of acceptance and do not use `BLOCKED` unless an external decision, permission, or fact genuinely prevents progress.
+
+For a continuing `[CHANGES_REQUESTED]` review, record `next_action: correction` for active findings or `next_action: checkpoint_resume` for reviewed budget-interruption gaps. The next Capsule's `revision_reason` must match that action; checkpoint continuation does not invent an active finding.
+
 After every verdict, reassess affected non-passed Task priorities. Record each `old → new` change and reason in the Review Record, or explicitly record `已复核，无调整`. Include the same concise result under `### 优先级复核` in chat.
 
 ## Executor handoff
@@ -91,6 +96,8 @@ Treat `### 发给执行代理的下一步指令（难度：Low|Medium|High）` a
 Do not emit this heading for blocked, draft, locked, incomplete, ambiguous, or no-next-task states. Its absence means `no dispatch` to automation.
 
 The Task Spec may be read by the executor only when the capsule names an exact section under `required_planning_lookup` and explains why that section cannot be projected safely. Never tell the executor to reread `TASK_LIST`, prior Review Records, or entire prerequisite Task Specs.
+
+Default automated execution is bounded to the initial run plus one correction. If work remains, stop automatic continuation; the lead reviews the current workspace and creates a new incremental capsule. Never automatically resend the full original task or continue one session without a bound.
 
 ## Legacy compatibility
 
@@ -116,6 +123,7 @@ Complete configured sync before selecting the next Task. A sync blocker does not
 The core skill stops at a vendor-neutral capsule and review state. Dispatch, authentication, process recovery, model flags, and channel permissions belong to adapters. Any downstream agent may execute a capsule when its capabilities match the recorded difficulty and the user or dispatch system authorizes that channel.
 
 - For an explicitly authorized Cursor CLI dispatch, read [references/adapters/cursor-cli.md](references/adapters/cursor-cli.md). Do not load it for ordinary planning or review.
+- For any budgeted channel, read [references/adapters/channel-budgeting.md](references/adapters/channel-budgeting.md). For Kimi-specific dispatch behavior, additionally read [references/adapters/kimi.md](references/adapters/kimi.md).
 - Other channels require their own adapter. Do not embed their model behavior in Task Specs or capsules.
 
 ## Response shape

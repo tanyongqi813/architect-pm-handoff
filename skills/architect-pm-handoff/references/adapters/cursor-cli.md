@@ -21,6 +21,8 @@ The compact prompt tells the executor to read only the capsule and listed anchor
 
 `--task docs/tasks/TASK-XXX.md` remains a legacy fallback for projects without capsules. It does not provide capsule-level context guarantees and must not be used to fabricate missing execution facts.
 
+Apply the shared rules in `channel-budgeting.md`: one initial execution plus at most one correction by default. Cursor model choice, session continuation, quota observations, and actual timeout enforcement belong to this adapter or its private configuration. Capsule time/call budgets remain soft unless the runner enforces and reports the referenced limit.
+
 ## Bounded stall recovery
 
 The default idle threshold is 12 minutes without a stream event. A single macOS GUI action to restart the Extension Host is the only GUI exception, and is allowed only when the user explicitly passes `--allow-recovery` for this specific dispatch.
@@ -36,4 +38,4 @@ Recovery requires macOS, a running Cursor app, Accessibility permission, and cur
 
 ## Completion
 
-Capture the concise Implementation Report for architect review. CLI exit zero is not a review verdict. Do not send follow-ups, start parallel executors, or dispatch another capsule automatically.
+Capture the concise Implementation Report for architect review. On budget or quota stop, preserve the workspace and capture `partial + checkpoint`, including branch, files, completed scope, remaining gaps, and whether verification covers the latest code. CLI exit zero is not a review verdict. Do not send more than one bounded correction, start parallel executors, or dispatch another capsule automatically.
