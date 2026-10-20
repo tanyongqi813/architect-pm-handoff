@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dispatch one Cursor CLI task with bounded macOS Extension Host recovery."""
+"""Dispatch one Cursor CLI capsule with bounded macOS Extension Host recovery."""
 
 from __future__ import annotations
 
@@ -23,7 +23,9 @@ HEALTH_TIMEOUT_SECONDS = 90
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", required=True, help="Absolute repository root")
-    parser.add_argument("--task", required=True, help="Repository-relative Task Spec path")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--capsule", help="Repository-relative Execution Capsule path")
+    source.add_argument("--task", help="Legacy repository-relative Task Spec path")
     parser.add_argument("--idle-seconds", type=int, default=DEFAULT_IDLE_SECONDS)
     parser.add_argument("--agent-command", help="Explicit Cursor CLI executable")
     parser.add_argument("--model", help="Optional Cursor model name")
@@ -36,23 +38,25 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def resolve_inputs(args: argparse.Namespace) -> tuple[Path, Path, str]:
+def resolve_inputs(args: argparse.Namespace) -> tuple[Path, Path, str, bool]:
     repo = Path(args.repo).expanduser().resolve()
     if not repo.is_dir():
         raise ValueError(f"Repository does not exist: {repo}")
     if not repo.is_absolute():
         raise ValueError("Repository path must be absolute")
 
-    task_arg = Path(args.task)
-    if task_arg.is_absolute():
-        raise ValueError("Task path must be relative to the repository")
-    task = (repo / task_arg).resolve()
+    source_value = args.capsule or args.task
+    assert source_value is not None
+    source_arg = Path(source_value)
+    if source_arg.is_absolute():
+        raise ValueError("Capsule/Task path must be relative to the repository")
+    source_path = (repo / source_arg).resolve()
     try:
-        task.relative_to(repo)
+        source_path.relative_to(repo)
     except ValueError as exc:
-        raise ValueError("Task path escapes the repository") from exc
-    if not task.is_file():
-        raise ValueError(f"Task Spec does not exist: {task}")
+        raise ValueError("Capsule/Task path escapes the repository") from exc
+    if not source_path.is_file():
+        raise ValueError(f"Capsule/Task file does not exist: {source_path}")
     if args.idle_seconds < 60:
         raise ValueError("Idle timeout must be at least 60 seconds")
 
@@ -60,7 +64,7 @@ def resolve_inputs(args: argparse.Namespace) -> tuple[Path, Path, str]:
     agent = requested or shutil.which("agent") or shutil.which("cursor-agent")
     if not agent:
         raise ValueError("Cursor CLI not found (expected agent or cursor-agent)")
-    return repo, task, agent
+    return repo, source_path, agent, args.capsule is None
 
 
 def git_status(repo: Path) -> str:
@@ -75,12 +79,20 @@ def git_status(repo: Path) -> str:
     return completed.stdout
 
 
-def build_command(agent: str, task: Path, repo: Path, model: str | None) -> list[str]:
-    relative_task = task.relative_to(repo).as_posix()
-    prompt = (
-        f"执行 @{relative_task}；严格遵守 AGENTS.md 与任务约束，只完成该任务；"
-        "完成验证后输出 Implementation Report 和 diff 摘要。"
-    )
+def build_command(
+    agent: str, source_path: Path, repo: Path, model: str | None, legacy: bool
+) -> list[str]:
+    relative_source = source_path.relative_to(repo).as_posix()
+    if legacy:
+        prompt = (
+            f"执行旧版任务说明 @{relative_source}；只完成该任务，不推导缺失的文件范围、"
+            "验证命令或基线；遇到缺失事实立即停止并报告。完成后输出精简 Implementation Report。"
+        )
+    else:
+        prompt = (
+            f"执行 @{relative_source}；只读取胶囊列出的源码锚点，只修改白名单文件，"
+            "只运行定向验证，并按胶囊固定格式返回精简 Implementation Report。"
+        )
     command = [
         agent,
         "-p",
@@ -182,12 +194,12 @@ def health_check(agent: str, repo: Path) -> bool:
 def main() -> int:
     args = parse_args()
     try:
-        repo, task, agent = resolve_inputs(args)
+        repo, source_path, agent, legacy = resolve_inputs(args)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    command = build_command(agent, task, repo, args.model)
+    command = build_command(agent, source_path, repo, args.model, legacy)
     if args.dry_run:
         print(f"cwd: {repo}")
         print(shlex.join(command))
@@ -197,7 +209,7 @@ def main() -> int:
 
     baseline = git_status(repo)
     with tempfile.NamedTemporaryFile(
-        prefix=f"cursor-{task.stem}-", suffix=".log", delete=False
+        prefix=f"cursor-{source_path.stem}-", suffix=".log", delete=False
     ) as handle:
         log_path = Path(handle.name)
     print(f"Cursor CLI log: {log_path}")
@@ -221,7 +233,7 @@ def main() -> int:
     if current != baseline:
         print(
             "Extension Host recovered, but the stalled attempt changed the workspace; "
-            "automatic retry was skipped for Codex review.",
+            "automatic retry was skipped for lead-AI review.",
             file=sys.stderr,
         )
         return 75
