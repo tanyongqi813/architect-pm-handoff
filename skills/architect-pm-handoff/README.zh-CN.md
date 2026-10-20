@@ -62,6 +62,8 @@ Task Spec 保存相对稳定的内容：
 
 Task Spec 不再累积执行日志、多轮评审对话和已解决问题。
 
+完整模板见 [`references/task-spec.md`](references/task-spec.md)。模板中的预计文件范围只是规划事实；精确文件白名单仍由每轮 Execution Capsule 定义。
+
 ### 2. Execution Capsule：本轮执行合同
 
 推荐路径：
@@ -223,3 +225,18 @@ docs/
 - 上下文压缩后只需重读胶囊和当前修改文件；
 - 负责人可以直接看到文件范围和验证上限；
 - Review Record 持续增长不会增加后续执行提示词长度。
+
+## 结构一致性校验
+
+技能提供 `scripts/validate_handoff_artifacts.py`，用于检查 Task Spec、Execution Capsule 与 Review Record 的职责边界和交叉引用：
+
+```text
+python3 scripts/validate_handoff_artifacts.py \
+  --repo /absolute/project/path \
+  --mode review \
+  --task docs/tasks/TASK-016.md \
+  --capsule docs/execution/TASK-016/attempt-02.md \
+  --review docs/reviews/TASK-016/attempt-02.md
+```
+
+支持 `planning`、`dispatch`、`review` 和 `legacy` 四种模式。`legacy` 只确认旧 Task Spec 存在，不会替它推导或补造 Capsule 字段。
