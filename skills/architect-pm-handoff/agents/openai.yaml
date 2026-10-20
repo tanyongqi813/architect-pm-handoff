@@ -1,6 +1,6 @@
 interface:
-  display_name: "Architect PM Handoff"
-  short_description: "Codex-only Task Specs and executor review"
-  default_prompt: "Use $architect-pm-handoff to plan this requirement into executable Task Specs."
+  display_name: "Lead AI Handoff"
+  short_description: "Lead planning, capsules, and reviews"
+  default_prompt: "Use $architect-pm-handoff as the lead AI to plan this requirement and create a context-efficient handoff for a downstream agent."
 policy:
   allow_implicit_invocation: true
