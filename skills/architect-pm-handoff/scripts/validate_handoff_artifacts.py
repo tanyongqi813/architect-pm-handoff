@@ -59,6 +59,8 @@ VENDOR_BINDING = re.compile(
     r"(?:executor|执行代理|执行者|下游)",
     re.IGNORECASE,
 )
+ALLOWED_VERDICTS = {"PASSED", "PASSED_WITH_NOTES", "CHANGES_REQUESTED", "BLOCKED"}
+ALLOWED_REVIEWER_ROLES = {"lead-ai"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -99,15 +101,22 @@ def section(text: str, title: str) -> str:
 
 
 def field(text: str, key: str) -> str | None:
-    match = re.search(rf"^-\s*{re.escape(key)}:\s*`?([^`\n]+?)`?\s*$", text, re.M)
-    return match.group(1).strip() if match else None
+    match = re.search(rf"^-\s*{re.escape(key)}:\s*(.+?)\s*$", text, re.M)
+    if not match:
+        return None
+    value = match.group(1).strip()
+    if len(value) >= 2 and value.startswith("`") and value.endswith("`"):
+        value = value[1:-1].strip()
+    return value
 
 
 def numbered_count(value: str) -> int:
     return len(re.findall(r"^\d+\.\s+", value, re.M))
 
 
-def validate_task(text: str, errors: list[str]) -> str | None:
+def validate_task(
+    text: str, task_path: str, errors: list[str]
+) -> tuple[str | None, dict[str, str | None]]:
     missing = sorted(TASK_HEADINGS - headings(text))
     if missing:
         errors.append(f"Task Spec missing durable headings: {', '.join(missing)}")
@@ -123,15 +132,20 @@ def validate_task(text: str, errors: list[str]) -> str | None:
     task_id = re.search(r"^#\s+(TASK-[A-Za-z0-9_-]+)\b", text, re.M)
     if not task_id:
         errors.append("Task Spec title must start with TASK-...")
-        return None
+        return None, {}
     for key in ("status", "priority", "difficulty", "dependencies", "current_attempt"):
         if field(text, key) is None:
             errors.append(f"Task Spec missing metadata field: {key}")
-    return task_id.group(1)
+    resolved_id = task_id.group(1)
+    if Path(task_path).name != f"{resolved_id}.md":
+        errors.append("Task Spec filename does not match task ID")
+    facts = {key: field(text, key) for key in ("priority", "difficulty")}
+    return resolved_id, facts
 
 
 def validate_capsule(
-    text: str, task_id: str | None, task_path: str, errors: list[str], warnings: list[str]
+    text: str, task_id: str | None, task_facts: dict[str, str | None],
+    task_path: str, capsule_path: str, errors: list[str], warnings: list[str]
 ) -> tuple[str | None, str | None]:
     missing = sorted(CAPSULE_HEADINGS - headings(text))
     if missing:
@@ -147,6 +161,14 @@ def validate_capsule(
         errors.append("Capsule planning_source does not match --task")
     if task_id and values["task_id"] != task_id:
         errors.append("Capsule task_id does not match Task Spec")
+    if values["priority"] and task_facts.get("priority") != values["priority"]:
+        errors.append("Capsule priority does not match Task Spec")
+    if values["difficulty"] and task_facts.get("difficulty") != values["difficulty"]:
+        errors.append("Capsule difficulty does not match Task Spec")
+    if values["task_id"] and values["attempt"]:
+        capsule_file = Path(capsule_path)
+        if capsule_file.name != f"attempt-{values['attempt']}.md" or capsule_file.parent.name != values["task_id"]:
+            errors.append("Capsule path does not match task_id and attempt metadata")
     lookup = values["required_planning_lookup"] or ""
     if lookup != "none" and ".md" in lookup and "#" not in lookup:
         errors.append("required_planning_lookup must name an exact heading, not a whole file")
@@ -195,8 +217,8 @@ def validate_capsule(
 
 
 def validate_review(
-    text: str, task_id: str | None, attempt: str | None, capsule_path: str,
-    errors: list[str]
+    text: str, repo: Path, review_path: str, task_id: str | None,
+    attempt: str | None, capsule_path: str, errors: list[str]
 ) -> None:
     missing = sorted(REVIEW_HEADINGS - headings(text))
     if missing:
@@ -210,6 +232,83 @@ def validate_review(
         errors.append("Review Record attempt does not match Capsule")
     if field(text, "capsule") != capsule_path:
         errors.append("Review Record capsule path does not match --capsule")
+    review_task = field(text, "task_id")
+    review_attempt = field(text, "attempt")
+    if review_task and review_attempt:
+        record_file = Path(review_path)
+        if record_file.name != f"attempt-{review_attempt}.md" or record_file.parent.name != review_task:
+            errors.append("Review Record path does not match task_id and attempt metadata")
+    verdict = field(text, "verdict")
+    reviewer_role = field(text, "reviewer_role")
+    if verdict not in ALLOWED_VERDICTS:
+        errors.append(f"Review Record has invalid verdict: {verdict}")
+    if reviewer_role not in ALLOWED_REVIEWER_ROLES:
+        errors.append(f"Review Record has invalid reviewer_role: {reviewer_role}")
+
+    task_status = field(text, "task_status")
+    next_capsule = field(text, "next_capsule")
+    active_next = field(text, "active_findings_for_next_attempt")
+    for key, value in (
+        ("task_status", task_status), ("next_capsule", next_capsule),
+        ("active_findings_for_next_attempt", active_next)
+    ):
+        if value is None:
+            errors.append(f"Review Record missing next-state field: {key}")
+    finding_section = section(text, "Findings")
+    active_finding_ids = set(
+        re.findall(r"(F-[A-Za-z0-9_-]+).*?\bactive\b", finding_section, re.I)
+    )
+    next_ids = set(re.findall(r"F-[A-Za-z0-9_-]+", active_next or ""))
+    next_is_none = (active_next or "").strip().lower() == "none"
+
+    if verdict in {"PASSED", "PASSED_WITH_NOTES"}:
+        if task_status != "PASSED":
+            errors.append("Passed review must set task_status to PASSED")
+        if next_capsule != "none":
+            errors.append("Passed review must not point to a next capsule")
+        if not next_is_none or active_finding_ids:
+            errors.append("Passed review must not retain active findings")
+        evidence = section(text, "验证证据")
+        if not re.search(r"\bPASS\b", evidence):
+            errors.append("Passed review must contain PASS verification evidence")
+    elif verdict == "CHANGES_REQUESTED":
+        if task_status != "READY_FOR_CORRECTION":
+            errors.append("CHANGES_REQUESTED must set task_status to READY_FOR_CORRECTION")
+        if not active_finding_ids:
+            errors.append("CHANGES_REQUESTED requires at least one active finding")
+        if not next_ids or next_ids != active_finding_ids:
+            errors.append("Next-attempt finding IDs must match active review findings")
+        if not next_capsule or next_capsule == "none":
+            errors.append("CHANGES_REQUESTED must point to the next attempt capsule")
+        elif review_task and review_attempt and review_attempt.isdigit():
+            expected_attempt = f"{int(review_attempt) + 1:02d}"
+            expected_path = str(
+                Path(capsule_path).parent / f"attempt-{expected_attempt}.md"
+            )
+            if next_capsule != expected_path:
+                errors.append("next_capsule does not point to the next attempt")
+            else:
+                next_path, next_error = resolve(repo, next_capsule, "Next Capsule")
+                if next_error:
+                    errors.append(next_error)
+                elif next_path:
+                    next_text = next_path.read_text(encoding="utf-8")
+                    if field(next_text, "task_id") != review_task:
+                        errors.append("Next Capsule task_id does not match Review Record")
+                    if field(next_text, "attempt") != expected_attempt:
+                        errors.append("Next Capsule attempt metadata is not the next attempt")
+                    if field(next_text, "revision_reason") != "changes_requested":
+                        errors.append("Next Capsule must be a changes_requested delta")
+                    capsule_findings = set(
+                        re.findall(r"F-[A-Za-z0-9_-]+", section(next_text, "Active findings"))
+                    )
+                    if capsule_findings != active_finding_ids:
+                        errors.append("Next Capsule findings do not match active review findings")
+    elif verdict == "BLOCKED":
+        if task_status != "BLOCKED":
+            errors.append("BLOCKED review must set task_status to BLOCKED")
+        if next_capsule != "none" or not next_is_none:
+            errors.append("BLOCKED review must not dispatch a next capsule or active findings")
     if VENDOR_BINDING.search(text):
         errors.append("Review Record binds an executor role to a vendor/model")
 
@@ -232,8 +331,11 @@ def main() -> int:
         errors.append("legacy mode validates only the existing Task Spec")
 
     task_id: str | None = None
+    task_facts: dict[str, str | None] = {}
     if task and args.mode != "legacy":
-        task_id = validate_task(task.read_text(encoding="utf-8"), errors)
+        task_id, task_facts = validate_task(
+            task.read_text(encoding="utf-8"), args.task, errors
+        )
 
     attempt: str | None = None
     capsule: Path | None = None
@@ -243,7 +345,8 @@ def main() -> int:
             errors.append(capsule_error)
         elif args.mode != "legacy":
             attempt, _ = validate_capsule(
-                capsule.read_text(encoding="utf-8"), task_id, args.task, errors, warnings
+                capsule.read_text(encoding="utf-8"), task_id, task_facts,
+                args.task, args.capsule, errors, warnings
             )
 
     if args.review:
@@ -252,8 +355,8 @@ def main() -> int:
             errors.append(review_error)
         elif args.mode != "legacy":
             validate_review(
-                review.read_text(encoding="utf-8"), task_id, attempt,
-                args.capsule or "", errors
+                review.read_text(encoding="utf-8"), repo, args.review,
+                task_id, attempt, args.capsule or "", errors
             )
 
     result = {

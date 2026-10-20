@@ -39,8 +39,8 @@ Use one immutable record per attempt: `docs/reviews/TASK-XXX/attempt-NN.md`. The
 
 ## 下一状态
 - task_status: `READY_FOR_CORRECTION | PASSED | BLOCKED`
-- next_capsule: `docs/execution/TASK-XXX/attempt-(NN+1).md | none`
-- active_findings_for_next_attempt: [`F-01`] or `none`
+- next_capsule: `docs/execution/TASK-XXX/attempt-NEXT.md | none`
+- active_findings_for_next_attempt: `F-01,F-02 | none`
 ```
 
 ## Rules
@@ -50,3 +50,7 @@ Use one immutable record per attempt: `docs/reviews/TASK-XXX/attempt-NN.md`. The
 - A `PASSED_WITH_NOTES` note is not silently converted into future execution work. Create a new planned Task only if accepted and prioritized.
 - Keep raw logs and large diffs outside the record; link or summarize evidence.
 - Do not append repeated reviews to the Task Spec. For legacy specs with embedded history, leave existing content intact and start Review Records at the next review.
+- `reviewer_role` is `lead-ai`; host or vendor names do not replace the protocol role.
+- `PASSED` and `PASSED_WITH_NOTES` require `task_status: PASSED`, passing verification evidence, `next_capsule: none`, and no active findings.
+- `CHANGES_REQUESTED` requires `task_status: READY_FOR_CORRECTION`, at least one active finding, and a next-attempt delta Capsule containing exactly those finding IDs.
+- `BLOCKED` requires `task_status: BLOCKED` and no executable next Capsule or next-attempt active findings.

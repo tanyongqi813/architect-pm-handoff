@@ -189,6 +189,8 @@ references/adapters/cursor-cli.md
 
 其他执行渠道可以增加各自 adapter，但不得把供应商名称或模型特性写进共享 Task Spec、Capsule 或 Review Record。
 
+正常 Cursor 派发不得使用 GUI 自动化或 GUI fallback。唯一例外是用户为当前 dispatch 明确传入 `--allow-recovery` 后，允许执行一次 macOS Extension Host GUI 恢复；恢复不是替代派发渠道，不得循环或扩大授权。若工作区已经产生变化，只恢复环境，不自动重试。
+
 ## 已通过任务的 Git 同步
 
 自动提交和推送默认关闭。公开配置位于 `config.example.toml`，个人配置应写入不进入版本控制的 `config.local.toml`。

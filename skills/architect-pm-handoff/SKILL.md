@@ -107,7 +107,7 @@ Automatic Git sync is opt-in via private `config.local.toml`; otherwise use disa
 
 After `[PASSED]` or `[PASSED_WITH_NOTES]`, when enabled, commit only approved Task-scoped implementation, tests, required generated/migration files, the Task Spec, current capsule and Review Record, `docs/TASK_LIST.md`, and architecture/ADR changes caused by the Task. Require passed acceptance verification, a named branch, no Git operation in progress, no suspected secrets, and no unrelated staged files.
 
-Run `python3 scripts/commit_and_sync_task.py` with an explicit `--path` for every approved file. Use subject `task(TASK-XXX): <short title>` and report commit SHA, branch, paths, and push status. Push only to the current branch's existing upstream when enabled. Never create upstreams, force-push, amend, rewrite history, switch branches, merge, or open a PR. Preserve a local commit when push fails; do not retry automatically.
+Run `python3 scripts/commit_and_sync_task.py` with explicit `--spec`, `--capsule`, `--review`, passing acceptance `--verification` records, and an explicit `--path` for every approved file. The helper must validate the complete review bundle before staging. Use subject `task(TASK-XXX): <short title>` and report commit SHA, branch, paths, and push status. Push only to the current branch's existing upstream when enabled. Never create upstreams, force-push, amend, rewrite history, switch branches, merge, or open a PR. Preserve a local commit when push fails; do not retry automatically.
 
 Complete configured sync before selecting the next Task. A sync blocker does not change the review verdict.
 

@@ -11,7 +11,7 @@ The adapter transports a vendor-neutral capsule. It must not rewrite planning fa
 - Resolve the repository absolute path and capsule path; confirm Task ID, attempt, priority, difficulty, allowlist, and targeted verification.
 - Confirm `agent` or `cursor-agent` is installed and authenticated.
 - Authorization is per dispatch. Skill enablement is not standing authorization.
-- Do not use GUI automation or GUI fallback.
+- Normal dispatch must not use GUI automation or GUI fallback.
 
 ## Dispatch
 
@@ -23,12 +23,14 @@ The compact prompt tells the executor to read only the capsule and listed anchor
 
 ## Bounded stall recovery
 
-The default idle threshold is 12 minutes without a stream event. Add `--allow-recovery` only when the user authorizes automatic recovery for this dispatch.
+The default idle threshold is 12 minutes without a stream event. A single macOS GUI action to restart the Extension Host is the only GUI exception, and is allowed only when the user explicitly passes `--allow-recovery` for this specific dispatch.
 
 - On the first confirmed stall, terminate the CLI process, preserve its temporary log, restart macOS `Developer: Restart Extension Host` through `scripts/restart_cursor_extension_host.sh`, and run one read-only health probe.
 - If the attempt changed the worktree, recover but do not retry; preserve changes for review.
 - If the worktree is unchanged and the probe passes, retry once in a fresh session.
 - If recovery or retry fails/stalls, stop. Never loop, force recovery, or switch to GUI.
+
+Recovery restores the execution environment; it is not an alternative dispatch channel and does not broaden file, command, model, or permission authorization. If the stalled attempt changed the worktree, perform at most the one authorized environment recovery and do not retry automatically.
 
 Recovery requires macOS, a running Cursor app, Accessibility permission, and current-dispatch authorization.
 

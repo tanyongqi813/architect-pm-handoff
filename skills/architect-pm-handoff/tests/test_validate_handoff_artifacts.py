@@ -88,21 +88,23 @@ REVIEW = """# Review Record — TASK-016 / attempt-02
 - attempt: `02`
 - capsule: `docs/execution/TASK-016/attempt-02.md`
 - reviewed_at: `2026-10-20`
-- verdict: `CHANGES_REQUESTED`
+- verdict: `PASSED`
 - reviewer_role: `lead-ai`
 
 ## 审查范围
 - current diff
 ## 验证证据
-- targeted test failed
+- `pytest tests/auth.test.ts` → PASS
 ## Findings
-- F-02 active
+- F-02 resolved
 ## 架构与范围结论
 - aligned
 ## 优先级复核
 - 已复核，无调整
 ## 下一状态
-- READY_FOR_CORRECTION
+- task_status: `PASSED`
+- next_capsule: `none`
+- active_findings_for_next_attempt: `none`
 """
 
 
@@ -177,6 +179,61 @@ class ArtifactValidatorTests(unittest.TestCase):
         result = self.run_validator("planning")
         self.assertEqual(result.returncode, 2)
         self.assertIn("vendor/model", result.stdout)
+
+    def test_review_rejects_invalid_verdict(self) -> None:
+        path = self.repo / "docs/reviews/TASK-016/attempt-02.md"
+        path.write_text(REVIEW.replace("- verdict: `PASSED`", "- verdict: `APPROVED`"), encoding="utf-8")
+        result = self.run_validator(
+            "review", "--capsule", "docs/execution/TASK-016/attempt-02.md",
+            "--review", "docs/reviews/TASK-016/attempt-02.md"
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("invalid verdict", result.stdout)
+
+    def test_review_rejects_wrong_status_combination(self) -> None:
+        path = self.repo / "docs/reviews/TASK-016/attempt-02.md"
+        path.write_text(
+            REVIEW.replace("- task_status: `PASSED`", "- task_status: `READY_FOR_CORRECTION`"),
+            encoding="utf-8",
+        )
+        result = self.run_validator(
+            "review", "--capsule", "docs/execution/TASK-016/attempt-02.md",
+            "--review", "docs/reviews/TASK-016/attempt-02.md"
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("task_status to PASSED", result.stdout)
+
+    def test_review_rejects_mismatched_attempt(self) -> None:
+        path = self.repo / "docs/reviews/TASK-016/attempt-02.md"
+        path.write_text(REVIEW.replace("- attempt: `02`", "- attempt: `03`"), encoding="utf-8")
+        result = self.run_validator(
+            "review", "--capsule", "docs/execution/TASK-016/attempt-02.md",
+            "--review", "docs/reviews/TASK-016/attempt-02.md"
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("attempt does not match Capsule", result.stdout)
+
+    def test_changes_requested_requires_matching_next_delta(self) -> None:
+        next_capsule = CAPSULE.replace("attempt-02", "attempt-03").replace(
+            "- attempt: `02`", "- attempt: `03`"
+        )
+        (self.repo / "docs/execution/TASK-016/attempt-03.md").write_text(
+            next_capsule, encoding="utf-8"
+        )
+        changes = REVIEW.replace("- verdict: `PASSED`", "- verdict: `CHANGES_REQUESTED`")
+        changes = changes.replace("- F-02 resolved", "- F-02 active")
+        changes = changes.replace(
+            "- task_status: `PASSED`\n- next_capsule: `none`\n- active_findings_for_next_attempt: `none`",
+            "- task_status: `READY_FOR_CORRECTION`\n"
+            "- next_capsule: `docs/execution/TASK-016/attempt-03.md`\n"
+            "- active_findings_for_next_attempt: `F-02`",
+        )
+        (self.repo / "docs/reviews/TASK-016/attempt-02.md").write_text(changes, encoding="utf-8")
+        result = self.run_validator(
+            "review", "--capsule", "docs/execution/TASK-016/attempt-02.md",
+            "--review", "docs/reviews/TASK-016/attempt-02.md"
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

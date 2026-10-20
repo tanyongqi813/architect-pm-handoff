@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -42,11 +43,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--task-id", required=True, help="Task identifier, e.g. TASK-020")
     parser.add_argument("--title", required=True, help="Short Task title")
     parser.add_argument("--spec", required=True, help="Repository-relative Task Spec path")
+    parser.add_argument("--capsule", required=True, help="Repository-relative Execution Capsule")
+    parser.add_argument("--review", required=True, help="Repository-relative Review Record")
     parser.add_argument("--verdict", choices=["PASSED", "PASSED_WITH_NOTES"], required=True)
     parser.add_argument("--priority", choices=["P0", "P1", "P2", "P3"], required=True)
     parser.add_argument("--difficulty", choices=["Low", "Medium", "High"], required=True)
     parser.add_argument("--path", action="append", required=True, dest="paths")
-    parser.add_argument("--verification", action="append", default=[])
+    parser.add_argument("--verification", action="append", required=True)
     parser.add_argument("--push", action="store_true", help="Push to the existing upstream")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -100,6 +103,47 @@ def nul_paths(output: str) -> list[str]:
     return [item for item in output.split("\0") if item]
 
 
+def metadata_field(text: str, key: str) -> str | None:
+    match = re.search(rf"^-\s*{re.escape(key)}:\s*(.+?)\s*$", text, re.M)
+    if not match:
+        return None
+    value = match.group(1).strip()
+    if len(value) >= 2 and value.startswith("`") and value.endswith("`"):
+        value = value[1:-1].strip()
+    return value
+
+
+def validate_review_bundle(
+    repo: Path, spec: str, capsule: str, review: str
+) -> list[str]:
+    validator = Path(__file__).resolve().parent / "validate_handoff_artifacts.py"
+    completed = run(
+        [
+            sys.executable,
+            str(validator),
+            "--repo",
+            str(repo),
+            "--mode",
+            "review",
+            "--task",
+            spec,
+            "--capsule",
+            capsule,
+            "--review",
+            review,
+        ],
+        repo,
+        check=False,
+    )
+    if completed.returncode == 0:
+        return []
+    try:
+        result = json.loads(completed.stdout)
+        return [str(item) for item in result.get("errors", [])] or ["unknown validator error"]
+    except json.JSONDecodeError:
+        return [completed.stderr.strip() or "invalid validator output"]
+
+
 def main() -> int:
     args = parse_args()
     repo = Path(args.repo).expanduser().resolve()
@@ -118,13 +162,53 @@ def main() -> int:
     try:
         paths = sorted({normalize_relative(repo, value) for value in args.paths})
         spec = normalize_relative(repo, args.spec)
+        capsule = normalize_relative(repo, args.capsule)
+        review = normalize_relative(repo, args.review)
     except ValueError as exc:
         return fail(str(exc))
-    if spec not in paths:
-        return fail("Task Spec must be included in the approved paths")
+    required_artifacts = {spec, capsule, review}
+    missing_artifacts = sorted(required_artifacts - set(paths))
+    if missing_artifacts:
+        return fail(
+            "approved paths must include Task Spec, Capsule, and Review Record: "
+            + ", ".join(missing_artifacts)
+        )
     sensitive = [path for path in paths if is_sensitive(path)]
     if sensitive:
         return fail(f"sensitive-looking paths require manual handling: {', '.join(sensitive)}")
+
+    bundle_errors = validate_review_bundle(repo, spec, capsule, review)
+    if bundle_errors:
+        return fail("review bundle validation failed: " + "; ".join(bundle_errors[:5]))
+
+    spec_text = (repo / spec).read_text(encoding="utf-8")
+    capsule_text = (repo / capsule).read_text(encoding="utf-8")
+    review_text = (repo / review).read_text(encoding="utf-8")
+    task_match = re.search(r"^#\s+(TASK-[A-Za-z0-9_-]+)\b", spec_text, re.M)
+    document_task_id = task_match.group(1) if task_match else None
+    if document_task_id != args.task_id:
+        return fail("--task-id does not match Task Spec")
+    for key, supplied in (("priority", args.priority), ("difficulty", args.difficulty)):
+        task_value = metadata_field(spec_text, key)
+        capsule_value = metadata_field(capsule_text, key)
+        if task_value != supplied or capsule_value != supplied:
+            return fail(f"--{key} does not match Task Spec and Capsule")
+    review_verdict = metadata_field(review_text, "verdict")
+    if review_verdict != args.verdict:
+        return fail("--verdict does not match Review Record")
+    evidence = re.search(
+        r"^##\s+验证证据\s*$\n(.*?)(?=^##\s+|\Z)", review_text, re.M | re.S
+    )
+    if not evidence or not re.search(r"\bPASS\b", evidence.group(1)):
+        return fail("Review Record has no passing acceptance verification evidence")
+    invalid_verification = [
+        item for item in args.verification
+        if not item.strip()
+        or not re.search(r"\bPASS\b", item)
+        or re.search(r"\b(?:FAIL|NOT_RUN)\b", item)
+    ]
+    if invalid_verification:
+        return fail("every --verification must record a passing command/check")
 
     pre_staged = nul_paths(
         run(["git", "diff", "--cached", "--name-only", "-z"], repo).stdout
@@ -149,6 +233,8 @@ def main() -> int:
                     "branch": branch,
                     "upstream": upstream or None,
                     "task": args.task_id,
+                    "capsule": capsule,
+                    "review": review,
                     "paths": paths,
                     "would_push": args.push,
                 },
@@ -172,15 +258,16 @@ def main() -> int:
     if not safe_title:
         return fail("Task title must contain non-whitespace characters")
     subject = f"task({args.task_id}): {safe_title}"
-    verification = args.verification or ["Recorded in Task Spec"]
     body_lines = [
         f"Task: {args.task_id}",
         f"Spec: {spec}",
+        f"Capsule: {capsule}",
+        f"Review record: {review}",
         f"Review: {args.verdict}",
         f"Priority: {args.priority}",
         f"Difficulty: {args.difficulty}",
         "Verification:",
-        *[f"- {item}" for item in verification],
+        *[f"- {item}" for item in args.verification],
         "Changed paths:",
         *[f"- {item}" for item in staged],
     ]
@@ -226,4 +313,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
